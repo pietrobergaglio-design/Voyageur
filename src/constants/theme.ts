@@ -1,6 +1,7 @@
 export const Colors = {
   accent: '#C4593B',
   navy: '#191A2C',
+  navyMid: '#1F2140',
   teal: '#1B8F6A',
   background: '#FAF9F5',
   white: '#FFFFFF',
@@ -10,6 +11,13 @@ export const Colors = {
     secondary: '#5C5849',
     muted: '#9E9A91',
     inverse: '#FFFFFF',
+  },
+
+  // Text on dark (onboarding) backgrounds
+  onDark: {
+    primary: '#FFFFFF',
+    secondary: 'rgba(255,255,255,0.72)',
+    muted: 'rgba(255,255,255,0.44)',
   },
 
   border: '#E5E0D5',

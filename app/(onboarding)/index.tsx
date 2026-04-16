@@ -1,40 +1,88 @@
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Colors, FontFamily } from '../../src/constants/theme';
-import { useAppStore } from '../../src/stores/useAppStore';
+import { router } from 'expo-router';
+import { OnboardingBackground } from '../../src/components/onboarding/OnboardingBackground';
+import { Colors, FontFamily, FontSize, Radius, Spacing } from '../../src/constants/theme';
 
-export default function OnboardingScreen() {
-  const setOnboardingComplete = useAppStore((s) => s.setOnboardingComplete);
-
+export default function OnboardingIntro() {
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.content}>
-        <Text style={styles.title}>Voyageur</Text>
-        <Text style={styles.subtitle}>Onboarding — placeholder</Text>
-      </View>
-    </SafeAreaView>
+    <OnboardingBackground>
+      <SafeAreaView style={styles.safe}>
+        <View style={styles.content}>
+          <Text style={styles.globe}>🌍</Text>
+          <Text style={styles.title}>Costruiamo il tuo{'\n'}profilo viaggiatore</Text>
+          <Text style={styles.subtitle}>
+            Qualche domanda per trovare esattamente quello che cerchi
+          </Text>
+        </View>
+
+        <View style={styles.footer}>
+          <SafeAreaView edges={['bottom']}>
+            <TouchableOpacity
+              style={styles.startBtn}
+              onPress={() => router.push('/(onboarding)/step2')}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.startBtnText}>Iniziamo →</Text>
+            </TouchableOpacity>
+            <Text style={styles.note}>Meno di 1 minuto · Puoi cambiare tutto dopo</Text>
+          </SafeAreaView>
+        </View>
+      </SafeAreaView>
+    </OnboardingBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  safe: {
     flex: 1,
-    backgroundColor: Colors.background,
   },
   content: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
+    paddingHorizontal: Spacing.xl,
+    gap: Spacing.lg,
+  },
+  globe: {
+    fontSize: 72,
+    marginBottom: Spacing.sm,
   },
   title: {
     fontFamily: FontFamily.displayBold,
-    fontSize: 32,
-    color: Colors.navy,
+    fontSize: FontSize.display,
+    color: Colors.onDark.primary,
+    textAlign: 'center',
+    lineHeight: 40,
   },
   subtitle: {
     fontFamily: FontFamily.body,
-    fontSize: 15,
-    color: Colors.text.muted,
+    fontSize: FontSize.lg,
+    color: Colors.onDark.secondary,
+    textAlign: 'center',
+    lineHeight: 24,
+  },
+  footer: {
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.md,
+  },
+  startBtn: {
+    backgroundColor: Colors.accent,
+    borderRadius: Radius.md,
+    paddingVertical: 16,
+    alignItems: 'center',
+    marginBottom: Spacing.md,
+  },
+  startBtnText: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: FontSize.lg,
+    color: Colors.white,
+  },
+  note: {
+    fontFamily: FontFamily.body,
+    fontSize: FontSize.sm,
+    color: Colors.onDark.muted,
+    textAlign: 'center',
+    paddingBottom: Spacing.lg,
   },
 });
