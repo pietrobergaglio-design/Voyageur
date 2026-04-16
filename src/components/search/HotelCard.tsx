@@ -103,7 +103,7 @@ const styles = StyleSheet.create({
     paddingTop: Spacing.sm,
   },
   perNight: {
-    fontFamily: FontFamily.bodySemiBold,
+    fontFamily: FontFamily.bodyBold,
     fontSize: FontSize.md,
     color: Colors.text.primary,
   },

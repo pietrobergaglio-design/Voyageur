@@ -123,7 +123,7 @@ const styles = StyleSheet.create({
     color: Colors.text.secondary,
   },
   total: {
-    fontFamily: FontFamily.displayBold,
+    fontFamily: FontFamily.bodyBold,
     fontSize: FontSize.lg,
     color: Colors.text.primary,
   },

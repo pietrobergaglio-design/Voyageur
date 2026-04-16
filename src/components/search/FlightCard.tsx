@@ -174,7 +174,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
   },
   time: {
-    fontFamily: FontFamily.displayBold,
+    fontFamily: FontFamily.bodyBold,
     fontSize: FontSize.xl,
     color: Colors.text.primary,
   },
@@ -221,12 +221,12 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   matchScore: {
-    fontFamily: FontFamily.body,
+    fontFamily: FontFamily.bodySemiBold,
     fontSize: FontSize.xs,
     color: Colors.teal,
   },
   price: {
-    fontFamily: FontFamily.displayBold,
+    fontFamily: FontFamily.bodyBold,
     fontSize: FontSize.xl,
     color: Colors.text.primary,
   },

@@ -81,7 +81,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   value: {
-    fontFamily: FontFamily.bodySemiBold,
+    fontFamily: FontFamily.bodyBold,
     fontSize: FontSize.md,
     color: Colors.text.primary,
   },

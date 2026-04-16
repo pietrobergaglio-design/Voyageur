@@ -51,8 +51,9 @@ export const FontFamily = {
   body: 'Outfit',
   bodyMedium: 'OutfitMedium',
   bodySemiBold: 'OutfitSemiBold',
+  bodyBold: 'OutfitBold',       // weight 700 — prezzi, orari, numeri grandi
   display: 'Fraunces',
-  displayBold: 'FrauncesDisplay',
+  displayBold: 'FrauncesDisplay', // solo titoli sezione
 } as const;
 
 export const FontSize = {

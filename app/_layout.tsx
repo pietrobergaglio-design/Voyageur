@@ -6,6 +6,7 @@ import {
   Outfit_400Regular,
   Outfit_500Medium,
   Outfit_600SemiBold,
+  Outfit_700Bold,
 } from '@expo-google-fonts/outfit';
 import {
   Fraunces_400Regular,
@@ -23,6 +24,7 @@ export default function RootLayout() {
     Outfit: Outfit_400Regular,
     OutfitMedium: Outfit_500Medium,
     OutfitSemiBold: Outfit_600SemiBold,
+    OutfitBold: Outfit_700Bold,
     Fraunces: Fraunces_400Regular,
     FrauncesDisplay: Fraunces_700Bold,
   });

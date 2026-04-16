@@ -106,7 +106,7 @@ const styles = StyleSheet.create({
     color: Colors.teal,
   },
   price: {
-    fontFamily: FontFamily.displayBold,
+    fontFamily: FontFamily.bodyBold,
     fontSize: FontSize.xl,
     color: Colors.text.primary,
   },

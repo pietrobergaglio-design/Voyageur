@@ -98,7 +98,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
   },
   price: {
-    fontFamily: FontFamily.displayBold,
+    fontFamily: FontFamily.bodyBold,
     fontSize: FontSize.lg,
     color: Colors.text.primary,
   },
