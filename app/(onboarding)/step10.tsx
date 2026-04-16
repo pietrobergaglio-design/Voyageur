@@ -39,7 +39,7 @@ export default function Step10() {
   return (
     <OnboardingBackground>
       <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
-        <OnboardingHeader step={9} total={9} onBack={() => router.back()} />
+        <OnboardingHeader step={10} total={10} onBack={() => router.back()} />
 
         <KeyboardAvoidingView
           style={styles.flex}

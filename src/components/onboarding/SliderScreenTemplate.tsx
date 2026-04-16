@@ -9,7 +9,7 @@ import { DescriptionCard } from './DescriptionCard';
 import { useAppStore } from '../../stores/useAppStore';
 import { Colors, FontFamily, FontSize, Radius, Spacing } from '../../constants/theme';
 
-type SliderKey = 'adventure' | 'food' | 'pace' | 'budget';
+type SliderKey = 'adventure' | 'food' | 'pace' | 'budget' | 'experience';
 
 export interface SliderConfig {
   step: number;
@@ -44,7 +44,7 @@ export function SliderScreenTemplate({ config }: { config: SliderConfig }) {
   return (
     <OnboardingBackground>
       <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
-        <OnboardingHeader step={step} total={9} onBack={() => router.back()} />
+        <OnboardingHeader step={step} total={10} onBack={() => router.back()} />
 
         <ScrollView
           style={styles.scroll}

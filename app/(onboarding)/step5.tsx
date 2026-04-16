@@ -22,7 +22,7 @@ const config: SliderConfig = {
     'Qualità prima di tutto, il resto segue',
     'Se è bello lo prendi, punto',
   ],
-  nextRoute: '/(onboarding)/step6',
+  nextRoute: '/(onboarding)/experience',
 };
 
 export default function Step5() {

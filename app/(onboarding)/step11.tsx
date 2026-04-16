@@ -9,6 +9,7 @@ const ADVENTURE_STOPS = ['Spa e spiaggia', 'Natura e passeggiate', 'Snorkeling e
 const FOOD_STOPS = ['Street food e mercati', 'Trattoria locale', 'Ristorante tipico', 'Bistrot ricercato', 'Stellato e omakase'];
 const PACE_STOPS = ['Giornata libera', '1-2 cose con calma', '2-3 cose e pause', '4 attività al giorno', 'Ogni minuto schedulato'];
 const BUDGET_STOPS = ['Ostello e ramen', 'Budget smart', 'Qualità-prezzo', 'Mi concedo il meglio', 'Senza limiti'];
+const EXPERIENCE_STOPS = ['Landmarks e must-see', 'Iconico ma smart', 'Mix di tutto', 'Off the beaten path', 'Solo locals'];
 
 const stopLabel = (stops: string[], value: number) => stops[Math.min(4, Math.round(value / 25))];
 
@@ -86,6 +87,7 @@ export default function Step11() {
             <SummaryRow label="🌮 Cucina"    value={stopLabel(FOOD_STOPS, data.food)} />
             <SummaryRow label="🐌 Ritmo"     value={stopLabel(PACE_STOPS, data.pace)} />
             <SummaryRow label="🎒 Budget"    value={stopLabel(BUDGET_STOPS, data.budget)} />
+            <SummaryRow label="🔑 Esperienza" value={stopLabel(EXPERIENCE_STOPS, data.experience)} />
           </SummaryCard>
 
           {/* Choices card */}

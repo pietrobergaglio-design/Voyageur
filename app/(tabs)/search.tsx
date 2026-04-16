@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { View, Text, ScrollView, Alert, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 
 import { SearchBar } from '../../src/components/search/SearchBar';
 import { ResultSection } from '../../src/components/search/ResultSection';
@@ -13,7 +14,9 @@ import { VisaCard } from '../../src/components/search/VisaCard';
 import { CartBar } from '../../src/components/search/CartBar';
 
 import { getMockResults } from '../../src/data/mockSearch';
+import { useAppStore } from '../../src/stores/useAppStore';
 import type { SearchParams, SearchResults, CartItem } from '../../src/types/booking';
+import type { Trip, TripItem } from '../../src/types/trip';
 import { Colors, FontFamily, FontSize, Spacing } from '../../src/constants/theme';
 
 const CART_BAR_HEIGHT = 72;
@@ -31,6 +34,8 @@ function nightsBetween(from: Date, to: Date) {
 }
 
 export default function SearchScreen() {
+  const router = useRouter();
+  const addTrip = useAppStore((s) => s.addTrip);
   const [params, setParams] = useState<SearchParams>(DEFAULT_PARAMS);
   const [hasSearched, setHasSearched] = useState(false);
   const [results, setResults] = useState<SearchResults | null>(null);
@@ -214,13 +219,40 @@ export default function SearchScreen() {
           items={cartItems}
           totalPrice={totalPrice}
           currency="EUR"
-          onCheckout={() =>
-            Alert.alert(
-              'Checkout coming soon',
-              'Il checkout unificato sarà disponibile nella prossima versione.',
-              [{ text: 'OK' }]
-            )
-          }
+          onCheckout={() => {
+            if (!results) return;
+            const tripItems: TripItem[] = cartItems.map((ci, idx) => ({
+              id: `${ci.type}-${ci.offerId}`,
+              type: ci.type,
+              title: ci.name,
+              subtitle: ci.type === 'flight' ? `${results.params.destination}` : ci.name,
+              dateLabel: `${results.params.checkIn.toLocaleDateString('it-IT')} – ${results.params.checkOut.toLocaleDateString('it-IT')}`,
+              confirmCode: `VYG-${Date.now().toString(36).toUpperCase()}-${idx}`,
+              price: ci.price,
+            }));
+
+            const checkIn = results.params.checkIn;
+            const checkOut = results.params.checkOut;
+            const fmt = (d: Date) =>
+              d.toLocaleDateString('it-IT', { day: 'numeric', month: 'short', year: 'numeric' });
+
+            const trip: Trip = {
+              id: `trip-${Date.now()}`,
+              destination: results.params.destination,
+              destinationCode: results.params.destinationCode ?? '',
+              coverEmoji: '✈️',
+              dateRange: `${fmt(checkIn)} – ${fmt(checkOut)}`,
+              status: 'upcoming',
+              travelers: results.params.travelers,
+              totalPrice,
+              currency: 'EUR',
+              bookingRef: `VYG-${Date.now().toString(36).toUpperCase()}`,
+              items: tripItems,
+            };
+
+            addTrip(trip);
+            router.push('/(tabs)/trips');
+          }}
         />
       )}
     </SafeAreaView>

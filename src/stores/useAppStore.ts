@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import type { Trip, TripStatus } from '../types/trip';
 
 interface UserPreferences {
   currency: string;
@@ -20,6 +21,7 @@ export interface OnboardingData {
   food: number;
   pace: number;
   budget: number;
+  experience: number;
   accommodation: string[];
   transport: string[];
   companion: string;
@@ -35,6 +37,7 @@ const defaultOnboarding: OnboardingData = {
   food: 50,
   pace: 50,
   budget: 50,
+  experience: 50,
   accommodation: [],
   transport: [],
   companion: '',
@@ -51,12 +54,15 @@ interface AppState {
   userPreferences: UserPreferences;
   userProfile: UserProfile | null;
   onboardingData: OnboardingData;
+  trips: Trip[];
 
   setHasHydrated: (value: boolean) => void;
   setOnboardingComplete: (value: boolean) => void;
   setUserPreferences: (prefs: Partial<UserPreferences>) => void;
   setUserProfile: (profile: UserProfile | null) => void;
   setOnboardingData: (data: Partial<OnboardingData>) => void;
+  addTrip: (trip: Trip) => void;
+  updateTripStatus: (id: string, status: TripStatus) => void;
 }
 
 export const useAppStore = create<AppState>()(
@@ -71,6 +77,7 @@ export const useAppStore = create<AppState>()(
       },
       userProfile: null,
       onboardingData: defaultOnboarding,
+      trips: [],
 
       setHasHydrated: (value) => set({ _hasHydrated: value }),
       setOnboardingComplete: (value) => set({ isOnboardingComplete: value }),
@@ -83,6 +90,14 @@ export const useAppStore = create<AppState>()(
         set((state) => ({
           onboardingData: { ...state.onboardingData, ...data },
         })),
+      addTrip: (trip) =>
+        set((state) => ({
+          trips: [trip, ...state.trips],
+        })),
+      updateTripStatus: (id, status) =>
+        set((state) => ({
+          trips: state.trips.map((t) => (t.id === id ? { ...t, status } : t)),
+        })),
     }),
     {
       name: 'voyageur-app-store',
@@ -92,6 +107,7 @@ export const useAppStore = create<AppState>()(
         userPreferences: state.userPreferences,
         userProfile: state.userProfile,
         onboardingData: state.onboardingData,
+        trips: state.trips,
       }),
       onRehydrateStorage: () => (state) => {
         state?.setHasHydrated(true);

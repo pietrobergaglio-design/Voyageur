@@ -33,7 +33,7 @@ export default function Step6() {
   return (
     <OnboardingBackground>
       <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
-        <OnboardingHeader step={5} total={9} onBack={() => router.back()} />
+        <OnboardingHeader step={6} total={10} onBack={() => router.back()} />
 
         <ScrollView
           style={styles.scroll}

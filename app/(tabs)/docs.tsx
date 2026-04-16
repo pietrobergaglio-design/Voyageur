@@ -1,37 +1,474 @@
-import { View, Text, StyleSheet } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { Colors, FontFamily } from '../../src/constants/theme';
+import { View, Text, ScrollView, StyleSheet, StatusBar } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useAppStore } from '../../src/stores/useAppStore';
+import { mockTokyoTrip } from '../../src/data/mockTrip';
+import { DocSection } from '../../src/components/docs/DocSection';
+import { Colors, FontFamily, FontSize, Spacing, Radius } from '../../src/constants/theme';
+import type { TripItem } from '../../src/types/trip';
+
+// ─── QR placeholder ───────────────────────────────────────────────────────────
+
+function QRBlock({ code }: { code: string }) {
+  return (
+    <View style={qrStyles.wrapper}>
+      <View style={qrStyles.grid}>
+        {Array.from({ length: 25 }).map((_, i) => (
+          <View
+            key={i}
+            style={[
+              qrStyles.cell,
+              (code.charCodeAt(i % code.length) + i) % 3 === 0 && qrStyles.cellFilled,
+            ]}
+          />
+        ))}
+      </View>
+      <Text style={qrStyles.codeText}>{code}</Text>
+    </View>
+  );
+}
+
+const qrStyles = StyleSheet.create({
+  wrapper: {
+    alignItems: 'center',
+    gap: 6,
+    padding: 10,
+    backgroundColor: Colors.background,
+    borderRadius: Radius.sm,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    alignSelf: 'flex-start',
+  },
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    width: 75,
+    height: 75,
+    gap: 2,
+  },
+  cell: {
+    width: 13,
+    height: 13,
+    borderRadius: 2,
+    backgroundColor: Colors.border,
+  },
+  cellFilled: { backgroundColor: Colors.navy },
+  codeText: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: FontSize.xs,
+    color: Colors.text.secondary,
+    letterSpacing: 1,
+  },
+});
+
+// ─── Info row helper ──────────────────────────────────────────────────────────
+
+function InfoRow({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={infoStyles.row}>
+      <Text style={infoStyles.label}>{label}</Text>
+      <Text style={infoStyles.value}>{value}</Text>
+    </View>
+  );
+}
+
+const infoStyles = StyleSheet.create({
+  row: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: Spacing.md,
+  },
+  label: {
+    fontFamily: FontFamily.body,
+    fontSize: FontSize.sm,
+    color: Colors.text.muted,
+    flexShrink: 0,
+  },
+  value: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: FontSize.sm,
+    color: Colors.text.primary,
+    textAlign: 'right',
+    flex: 1,
+  },
+});
+
+// ─── Divider ──────────────────────────────────────────────────────────────────
+
+function Divider() {
+  return <View style={{ height: 1, backgroundColor: Colors.border }} />;
+}
+
+// ─── Ticket card (boarding pass / hotel / activity / transport) ───────────────
+
+function TicketCard({ item }: { item: TripItem }) {
+  const TICKET_EMOJI: Record<TripItem['type'], string> = {
+    flight: '✈️',
+    hotel: '🏨',
+    activity: '🎟️',
+    transport: '🚆',
+    insurance: '🛡️',
+  };
+
+  return (
+    <View style={ticketStyles.card}>
+      <View style={ticketStyles.header}>
+        <Text style={ticketStyles.emoji}>{TICKET_EMOJI[item.type]}</Text>
+        <View style={ticketStyles.headerInfo}>
+          <Text style={ticketStyles.title}>{item.title}</Text>
+          <Text style={ticketStyles.subtitle}>{item.dateLabel}</Text>
+        </View>
+      </View>
+
+      <Divider />
+
+      <View style={ticketStyles.body}>
+        <View style={ticketStyles.metaBlock}>
+          {item.iata && (
+            <>
+              <InfoRow label="Rotta" value={`${item.iata.origin} → ${item.iata.destination}`} />
+              {item.departureAt && (
+                <InfoRow
+                  label="Partenza"
+                  value={new Date(item.departureAt).toLocaleTimeString('it-IT', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}
+                />
+              )}
+              {item.arrivalAt && (
+                <InfoRow
+                  label="Arrivo"
+                  value={new Date(item.arrivalAt).toLocaleTimeString('it-IT', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}
+                />
+              )}
+              <InfoRow label="Gate" value="Da confermare" />
+              <InfoRow label="Seat" value="Da assegnare" />
+            </>
+          )}
+          {!item.iata && <InfoRow label="Dettaglio" value={item.subtitle} />}
+          <InfoRow label="Codice conferma" value={item.confirmCode} />
+        </View>
+
+        <QRBlock code={item.confirmCode} />
+      </View>
+    </View>
+  );
+}
+
+const ticketStyles = StyleSheet.create({
+  card: {
+    backgroundColor: Colors.white,
+    borderRadius: Radius.md,
+    borderWidth: 1.5,
+    borderColor: Colors.border,
+    overflow: 'hidden',
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    padding: Spacing.md,
+    backgroundColor: Colors.navy + '06',
+  },
+  emoji: { fontSize: 22 },
+  headerInfo: { gap: 2 },
+  title: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: FontSize.md,
+    color: Colors.text.primary,
+  },
+  subtitle: {
+    fontFamily: FontFamily.body,
+    fontSize: FontSize.xs,
+    color: Colors.text.secondary,
+  },
+  body: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    padding: Spacing.md,
+    gap: Spacing.md,
+  },
+  metaBlock: {
+    flex: 1,
+    gap: Spacing.sm,
+  },
+});
+
+// ─── Refund row ───────────────────────────────────────────────────────────────
+
+const REFUND_CONFIG = {
+  flexible: {
+    emoji: '🟢',
+    label: 'Rimborsabile',
+    color: '#22a06b',
+    detail: 'Cancellazione gratuita. Rimborso totale entro i termini.',
+    deadline: 'Fino a 48h prima della partenza',
+  },
+  moderate: {
+    emoji: '🟡',
+    label: 'Rimborso parziale',
+    color: '#d97706',
+    detail: 'Penale del 30–50% applicata dopo la scadenza.',
+    deadline: 'Fino a 7 giorni prima',
+  },
+  strict: {
+    emoji: '🔴',
+    label: 'Non rimborsabile',
+    color: '#dc2626',
+    detail: 'Nessun rimborso. Possibile credito in caso di forza maggiore.',
+    deadline: 'Nessuna eccezione',
+  },
+};
+
+function RefundRow({ item }: { item: TripItem }) {
+  if (!item.refundPolicy) return null;
+  const rc = REFUND_CONFIG[item.refundPolicy];
+  return (
+    <View style={refundStyles.row}>
+      <Text style={refundStyles.emoji}>{rc.emoji}</Text>
+      <View style={refundStyles.info}>
+        <View style={refundStyles.titleRow}>
+          <Text style={refundStyles.itemTitle}>{item.title}</Text>
+          <Text style={[refundStyles.policyLabel, { color: rc.color }]}>{rc.label}</Text>
+        </View>
+        <Text style={refundStyles.detail}>{rc.detail}</Text>
+        <Text style={refundStyles.deadline}>⏰ {rc.deadline}</Text>
+      </View>
+    </View>
+  );
+}
+
+const refundStyles = StyleSheet.create({
+  row: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: Spacing.sm,
+    paddingBottom: Spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  emoji: { fontSize: 18, marginTop: 2 },
+  info: { flex: 1, gap: 3 },
+  titleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  itemTitle: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: FontSize.sm,
+    color: Colors.text.primary,
+    flex: 1,
+  },
+  policyLabel: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: FontSize.xs,
+  },
+  detail: {
+    fontFamily: FontFamily.body,
+    fontSize: FontSize.xs,
+    color: Colors.text.secondary,
+  },
+  deadline: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: FontSize.xs,
+    color: Colors.text.muted,
+  },
+});
+
+// ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function DocsScreen() {
+  const insets = useSafeAreaInsets();
+  const storeTrips = useAppStore((s) => s.trips);
+  const activeTrip = storeTrips.length > 0 ? storeTrips[0] : mockTokyoTrip;
+
+  const tickets = activeTrip.items.filter((i) => i.type !== 'insurance');
+  const refundItems = activeTrip.items.filter((i) => i.refundPolicy);
+  const insurance = activeTrip.items.find((i) => i.type === 'insurance');
+
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.content}>
+    <View style={[styles.screen, { paddingTop: insets.top }]}>
+      <StatusBar barStyle="dark-content" />
+
+      <View style={styles.header}>
         <Text style={styles.title}>Documenti</Text>
-        <Text style={styles.subtitle}>Placeholder</Text>
+        <Text style={styles.subtitle}>{activeTrip.destination} · {activeTrip.dateRange}</Text>
       </View>
-    </SafeAreaView>
+
+      <ScrollView
+        contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + 100 }]}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* 🎫 Biglietti e conferme */}
+        <DocSection title="Biglietti e conferme" emoji="🎫" defaultOpen>
+          {tickets.map((item) => (
+            <TicketCard key={item.id} item={item} />
+          ))}
+        </DocSection>
+
+        {/* 💸 Refund Policy */}
+        <DocSection title="Politiche di rimborso" emoji="💸">
+          {refundItems.map((item) => (
+            <RefundRow key={item.id} item={item} />
+          ))}
+        </DocSection>
+
+        {/* 🏥 Assicurazione */}
+        <DocSection title="Assicurazione" emoji="🏥">
+          {insurance ? (
+            <View style={styles.insuranceBlock}>
+              <InfoRow label="Provider" value={insurance.insuranceProvider ?? 'Qover'} />
+              <InfoRow label="N° polizza" value={insurance.confirmCode} />
+              <InfoRow label="Validità" value={insurance.dateLabel} />
+              <InfoRow label="Emergenze" value="+32 2 808 01 36" />
+              <Divider />
+              <Text style={styles.coverageTitle}>Coperture</Text>
+              {(insurance.coverageItems ?? []).map((c) => (
+                <Text key={c} style={styles.coverageItem}>✓ {c}</Text>
+              ))}
+            </View>
+          ) : (
+            <Text style={styles.emptyText}>Nessuna assicurazione aggiunta.</Text>
+          )}
+        </DocSection>
+
+        {/* 🛂 Visto */}
+        <DocSection title="Visto" emoji="🛂">
+          <View style={styles.visaBlock}>
+            <Text style={styles.visaStatus}>🟢 Visto non richiesto</Text>
+            <Text style={styles.visaDetail}>
+              Cittadini italiani: ingresso libero fino a 90 giorni per turismo.
+            </Text>
+            <Divider />
+            <InfoRow label="Passaporto" value="Valido per tutta la durata del viaggio" />
+            <InfoRow label="Permanenza max" value="90 giorni" />
+          </View>
+        </DocSection>
+
+        {/* 🧾 Ricevute */}
+        <DocSection title="Ricevute" emoji="🧾">
+          {activeTrip.items.map((item) => (
+            <View key={item.id} style={styles.receiptRow}>
+              <View style={styles.receiptLeft}>
+                <Text style={styles.receiptTitle}>{item.title}</Text>
+                <Text style={styles.receiptCode}>{item.confirmCode}</Text>
+              </View>
+              <Text style={styles.receiptPrice}>{item.price.toLocaleString('it-IT')} €</Text>
+            </View>
+          ))}
+          <View style={styles.receiptTotalRow}>
+            <Text style={styles.receiptTotalLabel}>Totale viaggio</Text>
+            <Text style={styles.receiptTotalPrice}>
+              {activeTrip.totalPrice.toLocaleString('it-IT')} {activeTrip.currency}
+            </Text>
+          </View>
+        </DocSection>
+      </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  screen: {
     flex: 1,
     backgroundColor: Colors.background,
   },
-  content: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
+  header: {
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+    backgroundColor: Colors.white,
   },
   title: {
     fontFamily: FontFamily.displayBold,
-    fontSize: 24,
-    color: Colors.navy,
+    fontSize: FontSize.xxl,
+    color: Colors.text.primary,
   },
   subtitle: {
     fontFamily: FontFamily.body,
-    fontSize: 15,
+    fontSize: FontSize.sm,
+    color: Colors.text.secondary,
+    marginTop: 2,
+  },
+  list: {
+    padding: Spacing.lg,
+    gap: Spacing.sm,
+  },
+  insuranceBlock: { gap: Spacing.sm },
+  coverageTitle: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: FontSize.sm,
+    color: Colors.text.primary,
+  },
+  coverageItem: {
+    fontFamily: FontFamily.body,
+    fontSize: FontSize.sm,
+    color: Colors.text.secondary,
+  },
+  emptyText: {
+    fontFamily: FontFamily.body,
+    fontSize: FontSize.sm,
     color: Colors.text.muted,
+  },
+  visaBlock: { gap: Spacing.sm },
+  visaStatus: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: FontSize.md,
+    color: '#22a06b',
+  },
+  visaDetail: {
+    fontFamily: FontFamily.body,
+    fontSize: FontSize.sm,
+    color: Colors.text.secondary,
+    lineHeight: 20,
+  },
+  receiptRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: Spacing.xs,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  receiptLeft: { gap: 2 },
+  receiptTitle: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: FontSize.sm,
+    color: Colors.text.primary,
+  },
+  receiptCode: {
+    fontFamily: FontFamily.body,
+    fontSize: FontSize.xs,
+    color: Colors.text.muted,
+    letterSpacing: 0.5,
+  },
+  receiptPrice: {
+    fontFamily: FontFamily.bodyBold,
+    fontSize: FontSize.sm,
+    color: Colors.text.primary,
+  },
+  receiptTotalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingTop: Spacing.sm,
+    marginTop: Spacing.xs,
+  },
+  receiptTotalLabel: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: FontSize.sm,
+    color: Colors.text.primary,
+  },
+  receiptTotalPrice: {
+    fontFamily: FontFamily.bodyBold,
+    fontSize: FontSize.md,
+    color: Colors.accent,
   },
 });
