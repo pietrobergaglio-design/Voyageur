@@ -55,11 +55,17 @@ export interface FlightOffer {
 
 export interface HotelOffer {
   id: string;
-  provider: 'expedia';
+  provider: 'expedia' | 'booking';
   name: string;
   zone: string;
-  stars: 1 | 2 | 3 | 4 | 5;
+  stars: 0 | 1 | 2 | 3 | 4 | 5;
   thumbnailUrl?: string;
+  photoUrls?: string[];
+  rating?: number;            // 0-10 from review score
+  reviewCount?: number;
+  reviewWord?: string;        // "Favoloso", "Eccellente", ecc.
+  hasFreeCancellation?: boolean;
+  originalPrice?: number;     // strikethrough price
   pricePerNight: number;
   totalPrice: number;
   currency: Currency;
@@ -67,6 +73,7 @@ export interface HotelOffer {
   matchScore: number;
   tags: MatchTag[];
   amenities: string[];
+  rawHotel?: unknown;
 }
 
 // ─── Transport ───────────────────────────────────────────────────────────────

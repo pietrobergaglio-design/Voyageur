@@ -20,7 +20,8 @@ import { CartBar } from '../../src/components/search/CartBar';
 
 import { getMockResults, DEFAULT_SEARCH_PARAMS } from '../../src/data/mockSearch';
 import { searchFlights, DuffelError } from '../../src/services/duffel';
-import type { SearchParams, SearchResults, CartItem, FlightOffer } from '../../src/types/booking';
+import { searchHotels, BookingError } from '../../src/services/booking';
+import type { SearchParams, SearchResults, CartItem, FlightOffer, HotelOffer } from '../../src/types/booking';
 import type { Trip } from '../../src/types/trip';
 import { Colors, FontFamily, FontSize, Spacing, Radius } from '../../src/constants/theme';
 
@@ -30,7 +31,34 @@ function nightsBetween(from: Date, to: Date) {
   return Math.max(1, Math.round((to.getTime() - from.getTime()) / 86_400_000));
 }
 
-// ─── FlightSkeleton ───────────────────────────────────────────────────────────
+// ─── Skeletons ────────────────────────────────────────────────────────────────
+
+const skStyles = StyleSheet.create({
+  card: {
+    backgroundColor: Colors.white,
+    borderRadius: Radius.md,
+    borderWidth: 1.5,
+    borderColor: Colors.border,
+    padding: Spacing.md,
+    gap: Spacing.sm,
+    overflow: 'hidden',
+  },
+  bar: {
+    backgroundColor: Colors.border,
+    borderRadius: 4,
+  },
+  routeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 4,
+  },
+  photoBlock: {
+    backgroundColor: Colors.border,
+    borderRadius: 0,
+    height: 160,
+    marginBottom: Spacing.sm,
+  },
+});
 
 function FlightSkeleton() {
   return (
@@ -46,25 +74,18 @@ function FlightSkeleton() {
   );
 }
 
-const skStyles = StyleSheet.create({
-  card: {
-    backgroundColor: Colors.white,
-    borderRadius: Radius.md,
-    borderWidth: 1.5,
-    borderColor: Colors.border,
-    padding: Spacing.md,
-    gap: Spacing.sm,
-  },
-  bar: {
-    backgroundColor: Colors.border,
-    borderRadius: 4,
-  },
-  routeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 4,
-  },
-});
+function HotelSkeleton() {
+  return (
+    <View style={[skStyles.card, { padding: 0 }]}>
+      <View style={skStyles.photoBlock} />
+      <View style={{ padding: Spacing.md, gap: Spacing.sm }}>
+        <View style={[skStyles.bar, { width: '65%', height: 15 }]} />
+        <View style={[skStyles.bar, { width: '40%', height: 11 }]} />
+        <View style={[skStyles.bar, { width: '30%', height: 18 }]} />
+      </View>
+    </View>
+  );
+}
 
 // ─── SaveDraftModal ───────────────────────────────────────────────────────────
 
@@ -149,6 +170,8 @@ export default function SearchScreen() {
   const [hasSearched, setHasSearched] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const [isFlightsLoading, setIsFlightsLoading] = useState(false);
+  const [isHotelsLoading, setIsHotelsLoading] = useState(false);
+  const [hotelCacheAgeMs, setHotelCacheAgeMs] = useState<number | null>(null);
   const [results, setResults] = useState<SearchResults | null>(null);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -204,6 +227,8 @@ export default function SearchScreen() {
   const handleSearch = async () => {
     setIsSearching(true);
     setIsFlightsLoading(true);
+    setIsHotelsLoading(true);
+    setHotelCacheAgeMs(null);
     setResults(null);
     setSelectedFlight(null);
     setSelectedHotel(null);
@@ -211,38 +236,41 @@ export default function SearchScreen() {
     setSelectedActivities([]);
     setSelectedInsurance(null);
 
-    // Load non-flight results immediately from mock
+    // Load mock base (transports, activities, insurance, visa) immediately
     const mockBase = getMockResults(params);
-    const partialResults: SearchResults = {
-      ...mockBase,
-      flights: [],
-    };
-    setResults(partialResults);
+    setResults({ ...mockBase, flights: [], hotels: [] });
     setHasSearched(true);
     setIsSearching(false);
 
-    // Fetch real flights from Duffel
-    let realFlights: FlightOffer[] | null = null;
-    try {
-      realFlights = await searchFlights(params, onboardingData);
-    } catch (err) {
-      if (__DEV__) console.warn('[search] Duffel error:', err);
-      const msg = err instanceof DuffelError
-        ? 'Ricerca voli non disponibile, riprova'
-        : 'Ricerca voli non disponibile, riprova';
-      setToastMessage(msg);
-      setToastVisible(true);
-    } finally {
-      setIsFlightsLoading(false);
-    }
+    // Fetch flights and hotels independently — update results as each resolves
+    const flightPromise = searchFlights(params, onboardingData)
+      .then((flights) => {
+        setIsFlightsLoading(false);
+        setResults((prev) => prev ? { ...prev, flights } : prev);
+      })
+      .catch((err) => {
+        setIsFlightsLoading(false);
+        if (__DEV__) console.warn('[search] Duffel error:', err);
+        setToastMessage('Ricerca voli non disponibile, riprova');
+        setToastVisible(true);
+        setResults((prev) => prev ? { ...prev, flights: mockBase.flights } : prev);
+      });
 
-    setResults((prev) => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        flights: realFlights ?? mockBase.flights,
-      };
-    });
+    const hotelPromise = searchHotels(params, onboardingData)
+      .then((result) => {
+        setIsHotelsLoading(false);
+        if (result.cacheAgeMs !== undefined) setHotelCacheAgeMs(result.cacheAgeMs);
+        setResults((prev) => prev ? { ...prev, hotels: result.hotels } : prev);
+      })
+      .catch((err) => {
+        setIsHotelsLoading(false);
+        if (__DEV__) console.warn('[search] Booking error:', err);
+        setToastMessage('Ricerca hotel non disponibile, riprova');
+        setToastVisible(true);
+        setResults((prev) => prev ? { ...prev, hotels: mockBase.hotels } : prev);
+      });
+
+    await Promise.allSettled([flightPromise, hotelPromise]);
   };
 
   const toggleTransport = (id: string) =>
@@ -335,7 +363,7 @@ export default function SearchScreen() {
         keyboardShouldPersistTaps="handled"
       >
         <Text style={styles.heading}>Cerca</Text>
-        <SearchBar params={params} onChange={setParams} onSearch={handleSearch} isLoading={isSearching || isFlightsLoading} />
+        <SearchBar params={params} onChange={setParams} onSearch={handleSearch} isLoading={isSearching || isFlightsLoading || isHotelsLoading} />
 
         {isSearching && (
           <View style={styles.loadingState}>
@@ -380,15 +408,38 @@ export default function SearchScreen() {
                   {results.flights.map((f) => (
                     <FlightCard key={f.id} flight={f} selected={selectedFlight === f.id} onSelect={() => setSelectedFlight(f.id === selectedFlight ? null : f.id)} />
                   ))}
-                  <Text style={styles.poweredBy}>Voli in tempo reale · Powered by Duffel</Text>
+                  <View style={styles.poweredByRow}>
+                    <Text style={styles.poweredBy}>Voli in tempo reale · Powered by Duffel</Text>
+                  </View>
                 </>
               )}
             </ResultSection>
 
-            <ResultSection title="🏨 Hotel" count={results.hotels.length}>
-              {results.hotels.map((h) => (
-                <HotelCard key={h.id} hotel={h} nights={nights} selected={selectedHotel === h.id} onSelect={() => setSelectedHotel(h.id === selectedHotel ? null : h.id)} />
-              ))}
+            <ResultSection title="🏨 Hotel" count={isHotelsLoading ? 0 : results.hotels.length}>
+              {isHotelsLoading ? (
+                <>
+                  <HotelSkeleton />
+                  <HotelSkeleton />
+                </>
+              ) : results.hotels.length === 0 ? (
+                <View style={styles.flightEmpty}>
+                  <Text style={styles.flightEmptyText}>Nessun hotel trovato per queste date</Text>
+                </View>
+              ) : (
+                <>
+                  {results.hotels.map((h) => (
+                    <HotelCard key={h.id} hotel={h} nights={nights} selected={selectedHotel === h.id} onSelect={() => setSelectedHotel(h.id === selectedHotel ? null : h.id)} />
+                  ))}
+                  <View style={styles.poweredByRow}>
+                    <Text style={styles.poweredBy}>
+                      {hotelCacheAgeMs != null
+                        ? `Aggiornato ${Math.round(hotelCacheAgeMs / 60000)} min fa · `
+                        : ''}
+                      Powered by Booking.com
+                    </Text>
+                  </View>
+                </>
+              )}
             </ResultSection>
 
             <ResultSection title="🚗 Trasporti" count={results.transports.length}>
@@ -467,12 +518,13 @@ const styles = StyleSheet.create({
   resultsSubtitle: { fontFamily: FontFamily.body, fontSize: FontSize.sm, color: Colors.text.muted },
   flightEmpty: { paddingVertical: Spacing.lg, alignItems: 'center' },
   flightEmptyText: { fontFamily: FontFamily.body, fontSize: FontSize.sm, color: Colors.text.muted },
+  poweredByRow: {
+    alignItems: 'center',
+    paddingVertical: Spacing.xs,
+  },
   poweredBy: {
     fontFamily: FontFamily.body,
     fontSize: FontSize.xs,
     color: Colors.text.muted,
-    textAlign: 'center',
-    paddingTop: Spacing.xs,
-    paddingBottom: Spacing.sm,
   },
 });
