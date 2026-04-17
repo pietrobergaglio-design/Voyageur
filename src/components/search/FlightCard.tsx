@@ -69,10 +69,22 @@ interface Props {
   onSelect: () => void;
 }
 
+function arrivalNextDayOffset(departureAt: string, arrivalAt: string): number {
+  const depDate = departureAt.slice(0, 10);
+  const arrDate = arrivalAt.slice(0, 10);
+  if (depDate === arrDate) return 0;
+  const dep = new Date(depDate);
+  const arr = new Date(arrDate);
+  return Math.round((arr.getTime() - dep.getTime()) / 86_400_000);
+}
+
 export function FlightCard({ flight, selected, onSelect }: Props) {
   const first = flight.segments[0];
   const last = flight.segments[flight.segments.length - 1];
-  const totalMinutes = flight.segments.reduce((s, seg) => s + seg.durationMinutes, 0);
+  // Prefer slice-level duration (includes layovers); fall back to segment sum for mock data
+  const totalMinutes = flight.totalDurationMinutes
+    ?? flight.segments.reduce((s, seg) => s + seg.durationMinutes, 0);
+  const nextDayOffset = arrivalNextDayOffset(first.departureAt, last.arrivalAt);
 
   return (
     <TouchableOpacity
@@ -100,12 +112,17 @@ export function FlightCard({ flight, selected, onSelect }: Props) {
           <View style={styles.routeLine} />
           <Text style={styles.duration}>{formatDuration(totalMinutes)}</Text>
           <Text style={styles.stops}>
-            {flight.stops === 0 ? 'Diretto' : `${flight.stops} scalo`}
+            {flight.stops === 0 ? 'Diretto' : `${flight.stops} scal${flight.stops === 1 ? 'o' : 'i'}`}
           </Text>
         </View>
 
         <View style={[styles.endpoint, styles.endpointRight]}>
-          <Text style={styles.time}>{formatTime(last.arrivalAt)}</Text>
+          <View style={styles.arrivalRow}>
+            <Text style={styles.time}>{formatTime(last.arrivalAt)}</Text>
+            {nextDayOffset > 0 && (
+              <Text style={styles.nextDay}>+{nextDayOffset}</Text>
+            )}
+          </View>
           <Text style={styles.iata}>{last.destination}</Text>
         </View>
       </View>
@@ -117,7 +134,9 @@ export function FlightCard({ flight, selected, onSelect }: Props) {
         </Text>
         <View style={styles.priceBlock}>
           <Text style={styles.matchScore}>{flight.matchScore}% match</Text>
-          <Text style={styles.price}>{flight.price.toLocaleString('it-IT')} €</Text>
+          <Text style={styles.price}>
+            {flight.price.toLocaleString('it-IT')} {flight.currency}
+          </Text>
         </View>
       </View>
     </TouchableOpacity>
@@ -173,6 +192,17 @@ const styles = StyleSheet.create({
   },
   endpointRight: {
     alignItems: 'flex-end',
+  },
+  arrivalRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 2,
+  },
+  nextDay: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: 10,
+    color: Colors.accent,
+    marginTop: 2,
   },
   time: {
     fontFamily: FontFamily.bodyBold,

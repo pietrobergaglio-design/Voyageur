@@ -167,8 +167,8 @@ function assignTags(offers: FlightOffer[]): void {
   const cheapest = offers.reduce((c, o) => o.price < c.price ? o : c, offers[0]);
   if (cheapest.id !== bestMatch.id) cheapest.tags.push('cheapest');
 
-  // Fastest (min total outbound duration)
-  const totalMins = (o: FlightOffer) => o.segments.reduce((s, seg) => s + seg.durationMinutes, 0);
+  // Fastest: use totalDurationMinutes (includes layover) for accurate comparison
+  const totalMins = (o: FlightOffer) => o.totalDurationMinutes ?? o.segments.reduce((s, seg) => s + seg.durationMinutes, 0);
   const fastest = offers.reduce((f, o) => totalMins(o) < totalMins(f) ? o : f, offers[0]);
   if (fastest.id !== bestMatch.id && fastest.id !== cheapest.id) {
     fastest.tags.push('fastest');
@@ -252,6 +252,10 @@ function normalizeOffer(offer: DuffelOffer, profile: OnboardingData): FlightOffe
   }));
   const baggageIncluded = baggage.some((b) => b.type === 'checked' && b.quantity > 0);
 
+  // Use slice-level duration (includes layover time for connecting flights).
+  // Summing segment durations only gives airborne time and is wrong for multi-stop.
+  const totalDurationMinutes = parseDurationToMinutes(outbound.duration);
+
   return {
     id: offer.id,
     provider: 'duffel',
@@ -261,6 +265,7 @@ function normalizeOffer(offer: DuffelOffer, profile: OnboardingData): FlightOffe
     segments: normalizedSegments,
     stops,
     stopoverCities,
+    totalDurationMinutes,
     price,
     currency: offer.total_currency as Currency,
     refundPolicy,

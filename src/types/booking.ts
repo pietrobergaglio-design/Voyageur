@@ -38,6 +38,8 @@ export interface FlightOffer {
   segments: FlightSegment[];
   stops: number;
   stopoverCities?: string[];
+  /** Total door-to-door minutes including layovers (from slice.duration). Preferred over summing segment durations. */
+  totalDurationMinutes?: number;
   price: number;
   currency: Currency;
   refundPolicy: RefundPolicy;
