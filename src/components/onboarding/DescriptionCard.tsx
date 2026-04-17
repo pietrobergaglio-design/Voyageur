@@ -1,5 +1,12 @@
 import { useEffect, useRef } from 'react';
-import { View, Text, Animated, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  withSequence,
+  Easing,
+} from 'react-native-reanimated';
 import { Colors, FontFamily, FontSize, Radius, Spacing } from '../../constants/theme';
 
 interface Props {
@@ -7,21 +14,31 @@ interface Props {
 }
 
 export function DescriptionCard({ phrase }: Props) {
-  const opacity = useRef(new Animated.Value(1)).current;
+  const opacity = useSharedValue(1);
+  const scale = useSharedValue(1);
   const prevPhrase = useRef(phrase);
 
   useEffect(() => {
     if (prevPhrase.current !== phrase) {
       prevPhrase.current = phrase;
-      Animated.sequence([
-        Animated.timing(opacity, { toValue: 0.3, duration: 100, useNativeDriver: true }),
-        Animated.timing(opacity, { toValue: 1, duration: 180, useNativeDriver: true }),
-      ]).start();
+      opacity.value = withSequence(
+        withTiming(0, { duration: 120, easing: Easing.out(Easing.ease) }),
+        withTiming(1, { duration: 220, easing: Easing.out(Easing.ease) }),
+      );
+      scale.value = withSequence(
+        withTiming(0.96, { duration: 120 }),
+        withTiming(1, { duration: 220, easing: Easing.out(Easing.back(1.5)) }),
+      );
     }
-  }, [phrase, opacity]);
+  }, [phrase, opacity, scale]);
+
+  const animStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [{ scale: scale.value }],
+  }));
 
   return (
-    <Animated.View style={[styles.card, { opacity }]}>
+    <Animated.View style={[styles.card, animStyle]}>
       <Text style={styles.phrase}>"{phrase}"</Text>
     </Animated.View>
   );

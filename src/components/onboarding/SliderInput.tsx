@@ -1,9 +1,11 @@
 import { useRef, useState } from 'react';
 import { View, PanResponder, StyleSheet } from 'react-native';
+import * as Haptics from 'expo-haptics';
 import { Colors } from '../../constants/theme';
 
 const THUMB = 28;
 const TRACK_H = 6;
+const SNAP_POINTS = [0, 25, 50, 75, 100];
 
 const clamp = (v: number) => Math.max(0, Math.min(100, v));
 
@@ -18,6 +20,7 @@ export function SliderInput({ value, onChange }: Props) {
   const trackWidthRef = useRef(0);
   const trackXRef = useRef(0);
   const onChangeRef = useRef(onChange);
+  const lastHapticValue = useRef<number | null>(null);
   onChangeRef.current = onChange;
 
   const computeValue = (localX: number): number => {
@@ -26,16 +29,26 @@ export function SliderInput({ value, onChange }: Props) {
     return clamp(Math.round(((localX - THUMB / 2) / usable) * 100));
   };
 
+  const emitWithHaptic = (v: number) => {
+    const isSnap = SNAP_POINTS.includes(v);
+    if (isSnap && lastHapticValue.current !== v) {
+      lastHapticValue.current = v;
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+    onChangeRef.current(v);
+  };
+
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: () => true,
       onPanResponderGrant: (e) => {
-        onChangeRef.current(computeValue(e.nativeEvent.locationX));
+        Haptics.selectionAsync();
+        emitWithHaptic(computeValue(e.nativeEvent.locationX));
       },
       onPanResponderMove: (_, gs) => {
         const localX = gs.moveX - trackXRef.current;
-        onChangeRef.current(computeValue(localX));
+        emitWithHaptic(computeValue(localX));
       },
     })
   ).current;

@@ -1,7 +1,12 @@
-import { useMemo, useState } from 'react';
-import { View, Text, ScrollView, Alert, StyleSheet } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useMemo, useState, useEffect, useRef, useCallback } from 'react';
+import { View, Text, ScrollView, ActivityIndicator, StyleSheet, Modal, TextInput, Pressable } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import { useFocusEffect } from 'expo-router';
+import * as Haptics from 'expo-haptics';
+import { useCheckoutStore } from '../../src/stores/useCheckoutStore';
+import { useAppStore } from '../../src/stores/useAppStore';
+import { Toast } from '../../src/components/common/Toast';
 
 import { SearchBar } from '../../src/components/search/SearchBar';
 import { ResultSection } from '../../src/components/search/ResultSection';
@@ -14,12 +19,11 @@ import { VisaCard } from '../../src/components/search/VisaCard';
 import { CartBar } from '../../src/components/search/CartBar';
 
 import { getMockResults } from '../../src/data/mockSearch';
-import { useAppStore } from '../../src/stores/useAppStore';
 import type { SearchParams, SearchResults, CartItem } from '../../src/types/booking';
-import type { Trip, TripItem } from '../../src/types/trip';
-import { Colors, FontFamily, FontSize, Spacing } from '../../src/constants/theme';
+import type { Trip } from '../../src/types/trip';
+import { Colors, FontFamily, FontSize, Spacing, Radius } from '../../src/constants/theme';
 
-const CART_BAR_HEIGHT = 72;
+const CART_BAR_HEIGHT = 88;
 
 const DEFAULT_PARAMS: SearchParams = {
   destination: 'Tokyo, Giappone',
@@ -33,12 +37,99 @@ function nightsBetween(from: Date, to: Date) {
   return Math.max(1, Math.round((to.getTime() - from.getTime()) / 86_400_000));
 }
 
+// ─── SaveDraftModal ───────────────────────────────────────────────────────────
+
+function SaveDraftModal({ visible, defaultName, onSave, onCancel }: {
+  visible: boolean;
+  defaultName: string;
+  onSave: (name: string) => void;
+  onCancel: () => void;
+}) {
+  const [name, setName] = useState(defaultName);
+  const insets = useSafeAreaInsets();
+
+  useEffect(() => {
+    if (visible) setName(defaultName);
+  }, [visible, defaultName]);
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onCancel}>
+      <Pressable style={dmStyles.backdrop} onPress={onCancel}>
+        <Pressable style={[dmStyles.sheet, { paddingBottom: insets.bottom + Spacing.lg }]} onPress={() => {}}>
+          <View style={dmStyles.handle} />
+          <Text style={dmStyles.title}>Salva come bozza</Text>
+          <Text style={dmStyles.subtitle}>Dai un nome al tuo viaggio per trovarlo facilmente</Text>
+          <TextInput
+            style={dmStyles.input}
+            value={name}
+            onChangeText={setName}
+            placeholder="es. Vacanza estiva a Tokyo"
+            placeholderTextColor={Colors.text.muted}
+            autoFocus
+            returnKeyType="done"
+            onSubmitEditing={() => name.trim() && onSave(name.trim())}
+          />
+          <View style={dmStyles.btnRow}>
+            <Pressable
+              style={({ pressed }) => [dmStyles.btnCancel, pressed && dmStyles.btnPressed]}
+              onPress={onCancel}
+            >
+              <Text style={dmStyles.btnCancelText}>Annulla</Text>
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [dmStyles.btnSave, !name.trim() && dmStyles.btnSaveDisabled, pressed && dmStyles.btnPressed]}
+              onPress={() => name.trim() && onSave(name.trim())}
+              disabled={!name.trim()}
+            >
+              <Text style={dmStyles.btnSaveText}>💾 Salva bozza</Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+const dmStyles = StyleSheet.create({
+  backdrop: { flex: 1, backgroundColor: Colors.overlay, justifyContent: 'flex-end' },
+  sheet: { backgroundColor: Colors.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: Spacing.lg, gap: Spacing.md },
+  handle: { width: 40, height: 4, borderRadius: 2, backgroundColor: Colors.border, alignSelf: 'center', marginBottom: Spacing.xs },
+  title: { fontFamily: FontFamily.displayBold, fontSize: FontSize.lg, color: Colors.text.primary },
+  subtitle: { fontFamily: FontFamily.body, fontSize: FontSize.sm, color: Colors.text.muted },
+  input: { fontFamily: FontFamily.bodyMedium, fontSize: FontSize.md, color: Colors.text.primary, backgroundColor: Colors.background, borderRadius: Radius.md, borderWidth: 1.5, borderColor: Colors.border, paddingHorizontal: Spacing.md, paddingVertical: 14, minHeight: 52 },
+  btnRow: { flexDirection: 'row', gap: Spacing.sm },
+  btnCancel: { flex: 1, borderRadius: Radius.md, borderWidth: 1.5, borderColor: Colors.border, paddingVertical: 14, alignItems: 'center', minHeight: 50 },
+  btnCancelText: { fontFamily: FontFamily.bodyMedium, fontSize: FontSize.md, color: Colors.text.secondary },
+  btnSave: { flex: 2, borderRadius: Radius.md, backgroundColor: Colors.accent, paddingVertical: 14, alignItems: 'center', minHeight: 50 },
+  btnSaveDisabled: { backgroundColor: Colors.accent + '55' },
+  btnSaveText: { fontFamily: FontFamily.bodySemiBold, fontSize: FontSize.md, color: Colors.white },
+  btnPressed: { opacity: 0.85 },
+});
+
+// ─── Screen ───────────────────────────────────────────────────────────────────
+
 export default function SearchScreen() {
   const router = useRouter();
+  const initCheckout = useCheckoutStore((s) => s.initCheckout);
+  const pendingDraftRestore = useCheckoutStore((s) => s.pendingDraftRestore);
+  const setPendingDraftRestore = useCheckoutStore((s) => s.setPendingDraftRestore);
   const addTrip = useAppStore((s) => s.addTrip);
+
   const [params, setParams] = useState<SearchParams>(DEFAULT_PARAMS);
   const [hasSearched, setHasSearched] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
   const [results, setResults] = useState<SearchResults | null>(null);
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const [showDraftModal, setShowDraftModal] = useState(false);
+  const [toastVisible, setToastVisible] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
+
+  useEffect(() => {
+    return () => {
+      if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    };
+  }, []);
 
   // Selections
   const [selectedFlight, setSelectedFlight] = useState<string | null>(null);
@@ -47,33 +138,61 @@ export default function SearchScreen() {
   const [selectedActivities, setSelectedActivities] = useState<string[]>([]);
   const [selectedInsurance, setSelectedInsurance] = useState<string | null>(null);
 
+  // Restore draft selections when returning from a draft's "Modifica selezioni"
+  useFocusEffect(
+    useCallback(() => {
+      if (!pendingDraftRestore) return;
+      const restore = pendingDraftRestore;
+      setPendingDraftRestore(null);
+
+      const restoredParams: SearchParams = {
+        destination: restore.destination,
+        destinationCode: restore.destinationCode,
+        checkIn: new Date(restore.checkIn),
+        checkOut: new Date(restore.checkOut),
+        travelers: restore.travelers,
+      };
+      setParams(restoredParams);
+
+      const r = getMockResults(restoredParams);
+      setResults(r);
+      setHasSearched(true);
+
+      for (const { type, offerId } of restore.itemIds) {
+        if (type === 'flight') setSelectedFlight(offerId);
+        else if (type === 'hotel') setSelectedHotel(offerId);
+        else if (type === 'transport') setSelectedTransports((prev) => [...prev, offerId]);
+        else if (type === 'activity') setSelectedActivities((prev) => [...prev, offerId]);
+        else if (type === 'insurance') setSelectedInsurance(offerId);
+      }
+    }, [pendingDraftRestore]),
+  );
+
   const handleSearch = () => {
-    const r = getMockResults(params);
-    setResults(r);
-    setHasSearched(true);
-    // Reset selections on new search
+    setIsSearching(true);
+    setResults(null);
     setSelectedFlight(null);
     setSelectedHotel(null);
     setSelectedTransports([]);
     setSelectedActivities([]);
     setSelectedInsurance(null);
+    searchTimerRef.current = setTimeout(() => {
+      const r = getMockResults(params);
+      setResults(r);
+      setHasSearched(true);
+      setIsSearching(false);
+    }, 800);
   };
 
   const toggleTransport = (id: string) =>
-    setSelectedTransports((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-    );
+    setSelectedTransports((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
 
   const toggleActivity = (id: string) =>
-    setSelectedActivities((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-    );
+    setSelectedActivities((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
 
-  // Derive cart from selections
   const cartItems = useMemo<CartItem[]>(() => {
     if (!results) return [];
     const items: CartItem[] = [];
-
     if (selectedFlight) {
       const f = results.flights.find((x) => x.id === selectedFlight);
       if (f) items.push({ type: 'flight', offerId: f.id, name: `${f.airline} ${f.segments[0].origin}→${f.segments[f.segments.length - 1].destination}`, price: f.price, currency: f.currency });
@@ -94,35 +213,77 @@ export default function SearchScreen() {
       const ins = results.insurance.find((x) => x.id === selectedInsurance);
       if (ins) items.push({ type: 'insurance', offerId: ins.id, name: ins.name, price: ins.price * params.travelers, currency: ins.currency });
     }
-
     return items;
   }, [results, selectedFlight, selectedHotel, selectedTransports, selectedActivities, selectedInsurance, params.travelers]);
 
-  const totalPrice = useMemo(
-    () => cartItems.reduce((sum, item) => sum + item.price, 0),
-    [cartItems]
-  );
+  const totalPrice = useMemo(() => cartItems.reduce((sum, item) => sum + item.price, 0), [cartItems]);
 
   const nights = nightsBetween(params.checkIn, params.checkOut);
   const hasCart = cartItems.length > 0;
+
+  const fmt = (d: Date) => d.toLocaleDateString('it-IT', { day: 'numeric', month: 'short', year: 'numeric' });
+
+  const handleSaveDraft = (name: string) => {
+    if (!results) return;
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+    const draftItems = cartItems.map((ci) => ({
+      id: `${ci.type}-${ci.offerId}`,
+      type: ci.type,
+      title: ci.name,
+      subtitle: ci.name,
+      dateLabel: `${fmt(params.checkIn)} – ${fmt(params.checkOut)}`,
+      confirmCode: '',
+      price: ci.price,
+    })) as Trip['items'];
+
+    const draft: Trip = {
+      id: `draft-${Date.now()}`,
+      name,
+      destination: params.destination,
+      destinationCode: params.destinationCode ?? '',
+      coverEmoji: '📋',
+      dateRange: `${fmt(params.checkIn)} – ${fmt(params.checkOut)}`,
+      checkIn: params.checkIn.toISOString(),
+      checkOut: params.checkOut.toISOString(),
+      status: 'draft',
+      travelers: params.travelers,
+      totalPrice,
+      currency: 'EUR',
+      items: draftItems,
+      bookingRef: '',
+      createdAt: new Date().toISOString(),
+    };
+
+    addTrip(draft);
+    setShowDraftModal(false);
+    setToastMessage('Bozza salvata!');
+    setToastVisible(true);
+    setTimeout(() => {
+      setToastVisible(false);
+      router.replace('/(tabs)/trips');
+    }, 1800);
+  };
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={[
-          styles.scrollContent,
-          hasCart && { paddingBottom: CART_BAR_HEIGHT + Spacing.xl },
-        ]}
+        contentContainerStyle={[styles.scrollContent, hasCart && { paddingBottom: CART_BAR_HEIGHT + Spacing.xl }]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        {/* Search bar */}
         <Text style={styles.heading}>Cerca</Text>
         <SearchBar params={params} onChange={setParams} onSearch={handleSearch} />
 
-        {/* Empty state */}
-        {!hasSearched && (
+        {isSearching && (
+          <View style={styles.loadingState}>
+            <ActivityIndicator size="large" color={Colors.accent} />
+            <Text style={styles.loadingText}>Cerco le migliori opzioni…</Text>
+          </View>
+        )}
+
+        {!hasSearched && !isSearching && (
           <View style={styles.emptyState}>
             <Text style={styles.emptyEmoji}>🗺️</Text>
             <Text style={styles.emptyTitle}>Dove vuoi andare?</Text>
@@ -132,8 +293,7 @@ export default function SearchScreen() {
           </View>
         )}
 
-        {/* Results */}
-        {results && (
+        {!isSearching && results && (
           <>
             <View style={styles.resultsHeader}>
               <Text style={styles.resultsTitle}>Risultati per {results.params.destination}</Text>
@@ -142,68 +302,36 @@ export default function SearchScreen() {
               </Text>
             </View>
 
-            {/* ✈️ Voli */}
             <ResultSection title="✈️ Voli" count={results.flights.length}>
               {results.flights.map((f) => (
-                <FlightCard
-                  key={f.id}
-                  flight={f}
-                  selected={selectedFlight === f.id}
-                  onSelect={() => setSelectedFlight(f.id === selectedFlight ? null : f.id)}
-                />
+                <FlightCard key={f.id} flight={f} selected={selectedFlight === f.id} onSelect={() => setSelectedFlight(f.id === selectedFlight ? null : f.id)} />
               ))}
             </ResultSection>
 
-            {/* 🏨 Hotel */}
             <ResultSection title="🏨 Hotel" count={results.hotels.length}>
               {results.hotels.map((h) => (
-                <HotelCard
-                  key={h.id}
-                  hotel={h}
-                  nights={nights}
-                  selected={selectedHotel === h.id}
-                  onSelect={() => setSelectedHotel(h.id === selectedHotel ? null : h.id)}
-                />
+                <HotelCard key={h.id} hotel={h} nights={nights} selected={selectedHotel === h.id} onSelect={() => setSelectedHotel(h.id === selectedHotel ? null : h.id)} />
               ))}
             </ResultSection>
 
-            {/* 🚗 Trasporti */}
             <ResultSection title="🚗 Trasporti" count={results.transports.length}>
               {results.transports.map((t) => (
-                <TransportCard
-                  key={t.id}
-                  transport={t}
-                  selected={selectedTransports.includes(t.id)}
-                  onSelect={() => toggleTransport(t.id)}
-                />
+                <TransportCard key={t.id} transport={t} selected={selectedTransports.includes(t.id)} onSelect={() => toggleTransport(t.id)} />
               ))}
             </ResultSection>
 
-            {/* 🎯 Attività */}
             <ResultSection title="🎯 Attività" count={results.activities.length}>
               {results.activities.map((a) => (
-                <ActivityCard
-                  key={a.id}
-                  activity={a}
-                  selected={selectedActivities.includes(a.id)}
-                  onSelect={() => toggleActivity(a.id)}
-                />
+                <ActivityCard key={a.id} activity={a} selected={selectedActivities.includes(a.id)} onSelect={() => toggleActivity(a.id)} />
               ))}
             </ResultSection>
 
-            {/* 🏥 Assicurazione */}
             <ResultSection title="🏥 Assicurazione" count={results.insurance.length}>
               {results.insurance.map((ins) => (
-                <InsuranceCard
-                  key={ins.id}
-                  plan={ins}
-                  selected={selectedInsurance === ins.id}
-                  onSelect={() => setSelectedInsurance(ins.id === selectedInsurance ? null : ins.id)}
-                />
+                <InsuranceCard key={ins.id} plan={ins} selected={selectedInsurance === ins.id} onSelect={() => setSelectedInsurance(ins.id === selectedInsurance ? null : ins.id)} />
               ))}
             </ResultSection>
 
-            {/* 🛂 Visto */}
             {results.visa && (
               <ResultSection title="🛂 Visto" count={1}>
                 <VisaCard visa={results.visa} />
@@ -213,63 +341,36 @@ export default function SearchScreen() {
         )}
       </ScrollView>
 
-      {/* Cart bar */}
-      {hasCart && (
+      {hasCart && !isSearching && (
         <CartBar
           items={cartItems}
           totalPrice={totalPrice}
           currency="EUR"
+          onSaveDraft={() => setShowDraftModal(true)}
           onCheckout={() => {
             if (!results) return;
-            const tripItems: TripItem[] = cartItems.map((ci, idx) => ({
-              id: `${ci.type}-${ci.offerId}`,
-              type: ci.type,
-              title: ci.name,
-              subtitle: ci.type === 'flight' ? `${results.params.destination}` : ci.name,
-              dateLabel: `${results.params.checkIn.toLocaleDateString('it-IT')} – ${results.params.checkOut.toLocaleDateString('it-IT')}`,
-              confirmCode: `VYG-${Date.now().toString(36).toUpperCase()}-${idx}`,
-              price: ci.price,
-            }));
-
-            const checkIn = results.params.checkIn;
-            const checkOut = results.params.checkOut;
-            const fmt = (d: Date) =>
-              d.toLocaleDateString('it-IT', { day: 'numeric', month: 'short', year: 'numeric' });
-
-            const trip: Trip = {
-              id: `trip-${Date.now()}`,
-              destination: results.params.destination,
-              destinationCode: results.params.destinationCode ?? '',
-              coverEmoji: '✈️',
-              dateRange: `${fmt(checkIn)} – ${fmt(checkOut)}`,
-              status: 'upcoming',
-              travelers: results.params.travelers,
-              totalPrice,
-              currency: 'EUR',
-              bookingRef: `VYG-${Date.now().toString(36).toUpperCase()}`,
-              items: tripItems,
-            };
-
-            addTrip(trip);
-            router.push('/(tabs)/trips');
+            initCheckout(cartItems, totalPrice, 'EUR', results.params, results);
+            router.push('/checkout/summary');
           }}
         />
       )}
+
+      <SaveDraftModal
+        visible={showDraftModal}
+        defaultName={params.destination.split(',')[0]}
+        onSave={handleSaveDraft}
+        onCancel={() => setShowDraftModal(false)}
+      />
+
+      <Toast message={toastMessage} visible={toastVisible} onHide={() => setToastVisible(false)} />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: {
-    flex: 1,
-    backgroundColor: Colors.background,
-  },
-  scroll: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingBottom: Spacing.xxl,
-  },
+  safe: { flex: 1, backgroundColor: Colors.background },
+  scroll: { flex: 1 },
+  scrollContent: { paddingBottom: Spacing.xxl },
   heading: {
     fontFamily: FontFamily.displayBold,
     fontSize: FontSize.display,
@@ -278,42 +379,13 @@ const styles = StyleSheet.create({
     paddingTop: Spacing.lg,
     paddingBottom: Spacing.sm,
   },
-  emptyState: {
-    alignItems: 'center',
-    paddingHorizontal: Spacing.xl,
-    paddingTop: Spacing.xxl + Spacing.xl,
-    gap: Spacing.md,
-  },
-  emptyEmoji: {
-    fontSize: 56,
-    marginBottom: Spacing.sm,
-  },
-  emptyTitle: {
-    fontFamily: FontFamily.displayBold,
-    fontSize: FontSize.xl,
-    color: Colors.text.primary,
-    textAlign: 'center',
-  },
-  emptySubtitle: {
-    fontFamily: FontFamily.body,
-    fontSize: FontSize.md,
-    color: Colors.text.muted,
-    textAlign: 'center',
-    lineHeight: 22,
-  },
-  resultsHeader: {
-    paddingHorizontal: Spacing.lg,
-    paddingBottom: Spacing.lg,
-    gap: 3,
-  },
-  resultsTitle: {
-    fontFamily: FontFamily.bodySemiBold,
-    fontSize: FontSize.lg,
-    color: Colors.text.primary,
-  },
-  resultsSubtitle: {
-    fontFamily: FontFamily.body,
-    fontSize: FontSize.sm,
-    color: Colors.text.muted,
-  },
+  emptyState: { alignItems: 'center', paddingHorizontal: Spacing.xl, paddingTop: Spacing.xxl + Spacing.xl, gap: Spacing.md },
+  emptyEmoji: { fontSize: 56, marginBottom: Spacing.sm },
+  emptyTitle: { fontFamily: FontFamily.displayBold, fontSize: FontSize.xl, color: Colors.text.primary, textAlign: 'center' },
+  emptySubtitle: { fontFamily: FontFamily.body, fontSize: FontSize.md, color: Colors.text.muted, textAlign: 'center', lineHeight: 22 },
+  loadingState: { alignItems: 'center', paddingTop: Spacing.xxl + Spacing.xl, gap: Spacing.md },
+  loadingText: { fontFamily: FontFamily.body, fontSize: FontSize.md, color: Colors.text.muted },
+  resultsHeader: { paddingHorizontal: Spacing.lg, paddingBottom: Spacing.lg, gap: 3 },
+  resultsTitle: { fontFamily: FontFamily.bodySemiBold, fontSize: FontSize.lg, color: Colors.text.primary },
+  resultsSubtitle: { fontFamily: FontFamily.body, fontSize: FontSize.sm, color: Colors.text.muted },
 });

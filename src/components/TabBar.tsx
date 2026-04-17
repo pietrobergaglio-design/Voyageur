@@ -2,6 +2,7 @@ import { View, TouchableOpacity, Text, StyleSheet } from 'react-native';
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import { Colors, FontFamily, FontSize } from '../constants/theme';
 
 type IoniconName = keyof typeof Ionicons.glyphMap;
@@ -40,6 +41,7 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
               canPreventDefault: true,
             });
             if (!isFocused && !event.defaultPrevented) {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
               navigation.navigate(route.name);
             }
           };
@@ -50,6 +52,9 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
               style={styles.tab}
               onPress={onPress}
               activeOpacity={0.65}
+              accessibilityRole="tab"
+              accessibilityLabel={tab.label}
+              accessibilityState={{ selected: isFocused }}
             >
               {isFocused && <View style={styles.activePill} />}
               <Ionicons
@@ -85,6 +90,7 @@ const styles = StyleSheet.create({
     paddingTop: 4,
     paddingBottom: 4,
     gap: 3,
+    minHeight: 44,
   },
   activePill: {
     position: 'absolute',

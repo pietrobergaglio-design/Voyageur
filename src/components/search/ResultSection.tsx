@@ -1,5 +1,11 @@
 import { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, Pressable, StyleSheet } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  interpolate,
+} from 'react-native-reanimated';
 import { Colors, FontFamily, FontSize, Spacing } from '../../constants/theme';
 
 interface Props {
@@ -11,22 +17,29 @@ interface Props {
 
 export function ResultSection({ title, count, children, defaultExpanded = true }: Props) {
   const [expanded, setExpanded] = useState(defaultExpanded);
+  const rotation = useSharedValue(defaultExpanded ? 1 : 0);
+
+  const chevronStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${interpolate(rotation.value, [0, 1], [0, 180])}deg` }],
+  }));
+
+  const toggle = () => {
+    const next = !expanded;
+    setExpanded(next);
+    rotation.value = withTiming(next ? 1 : 0, { duration: 220 });
+  };
 
   return (
     <View style={styles.container}>
-      <TouchableOpacity
-        style={styles.header}
-        onPress={() => setExpanded((v) => !v)}
-        activeOpacity={0.7}
-      >
+      <Pressable style={styles.header} onPress={toggle}>
         <View style={styles.titleRow}>
           <Text style={styles.title}>{title}</Text>
           <View style={styles.badge}>
             <Text style={styles.badgeText}>{count}</Text>
           </View>
         </View>
-        <Text style={styles.chevron}>{expanded ? '∧' : '∨'}</Text>
-      </TouchableOpacity>
+        <Animated.Text style={[styles.chevron, chevronStyle]}>∨</Animated.Text>
+      </Pressable>
 
       {expanded && <View style={styles.content}>{children}</View>}
     </View>
@@ -43,6 +56,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: Spacing.sm,
+    paddingVertical: 4,
+    minHeight: 44,
   },
   titleRow: {
     flexDirection: 'row',

@@ -1,4 +1,4 @@
-import { View, Text, ScrollView, StyleSheet, StatusBar, Linking, TouchableOpacity } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, StatusBar, Linking, TouchableOpacity, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppStore } from '../../src/stores/useAppStore';
 import { mockTokyoTrip } from '../../src/data/mockTrip';
@@ -122,8 +122,13 @@ export default function ExploreScreen() {
             <TouchableOpacity
               key={`${e.provider}-${e.data}`}
               style={styles.esimCard}
-              onPress={() => Linking.openURL(e.link)}
+              onPress={() =>
+                Linking.openURL(e.link).catch(() =>
+                  Alert.alert('Errore', 'Impossibile aprire il link.')
+                )
+              }
               activeOpacity={0.8}
+              accessibilityLabel={`Acquista eSIM ${e.provider} ${e.data}`}
             >
               <View style={styles.esimInfo}>
                 <Text style={styles.esimProvider}>{e.provider}</Text>

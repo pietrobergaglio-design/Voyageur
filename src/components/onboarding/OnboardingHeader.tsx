@@ -1,4 +1,6 @@
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import Animated, { useSharedValue, useAnimatedStyle, withTiming } from 'react-native-reanimated';
+import { useEffect } from 'react';
 import { Colors, FontFamily, FontSize, Spacing } from '../../constants/theme';
 
 interface Props {
@@ -9,18 +11,25 @@ interface Props {
 
 export function OnboardingHeader({ step, total, onBack }: Props) {
   const progress = step / total;
+  const width = useSharedValue(progress);
+
+  useEffect(() => {
+    width.value = withTiming(progress, { duration: 400 });
+  }, [progress, width]);
+
+  const barStyle = useAnimatedStyle(() => ({
+    width: `${width.value * 100}%`,
+  }));
 
   return (
     <View style={styles.container}>
-      {/* Progress bar */}
       <View style={styles.progressBg}>
-        <View style={[styles.progressFill, { width: `${progress * 100}%` }]} />
+        <Animated.View style={[styles.progressFill, barStyle]} />
       </View>
 
-      {/* Back button + step counter row */}
       <View style={styles.row}>
         {onBack ? (
-          <TouchableOpacity onPress={onBack} activeOpacity={0.7} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <TouchableOpacity onPress={onBack} activeOpacity={0.7} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
             <Text style={styles.backText}>← Indietro</Text>
           </TouchableOpacity>
         ) : (

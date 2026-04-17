@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { View, Text, ScrollView, StyleSheet, StatusBar } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppStore } from '../../src/stores/useAppStore';
@@ -9,17 +10,16 @@ import type { TripItem } from '../../src/types/trip';
 // ─── QR placeholder ───────────────────────────────────────────────────────────
 
 function QRBlock({ code }: { code: string }) {
+  const cells = useMemo(
+    () => Array.from({ length: 25 }, (_, i) => (code.charCodeAt(i % code.length) + i) % 3 === 0),
+    [code],
+  );
+
   return (
     <View style={qrStyles.wrapper}>
       <View style={qrStyles.grid}>
-        {Array.from({ length: 25 }).map((_, i) => (
-          <View
-            key={i}
-            style={[
-              qrStyles.cell,
-              (code.charCodeAt(i % code.length) + i) % 3 === 0 && qrStyles.cellFilled,
-            ]}
-          />
+        {cells.map((filled, i) => (
+          <View key={i} style={[qrStyles.cell, filled && qrStyles.cellFilled]} />
         ))}
       </View>
       <Text style={qrStyles.codeText}>{code}</Text>
@@ -314,9 +314,13 @@ export default function DocsScreen() {
 
         {/* 💸 Refund Policy */}
         <DocSection title="Politiche di rimborso" emoji="💸">
-          {refundItems.map((item) => (
-            <RefundRow key={item.id} item={item} />
-          ))}
+          {refundItems.length > 0 ? (
+            refundItems.map((item) => (
+              <RefundRow key={item.id} item={item} />
+            ))
+          ) : (
+            <Text style={styles.emptyText}>Nessuna politica di rimborso disponibile.</Text>
+          )}
         </DocSection>
 
         {/* 🏥 Assicurazione */}

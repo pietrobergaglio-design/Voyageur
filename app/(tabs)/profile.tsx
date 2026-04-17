@@ -4,6 +4,11 @@ import { useAppStore } from '../../src/stores/useAppStore';
 import { SliderBar } from '../../src/components/profile/SliderBar';
 import { Colors, FontFamily, FontSize, Spacing, Radius } from '../../src/constants/theme';
 
+const SLIDER_COLORS = {
+  budget: '#7c3aed',
+  experience: '#d97706',
+} as const;
+
 const COMPANION_LABELS: Record<string, string> = {
   solo: 'Solo',
   couple: 'Coppia',
@@ -142,14 +147,14 @@ export default function ProfileScreen() {
             value={data.budget}
             leftLabel="Economico"
             rightLabel="Lusso"
-            color='#7c3aed'
+            color={SLIDER_COLORS.budget}
           />
           <SliderBar
             label="Esperienza"
             value={data.experience}
             leftLabel="📸 Iconici"
             rightLabel="🔑 Nascosti"
-            color='#d97706'
+            color={SLIDER_COLORS.experience}
           />
         </Section>
 

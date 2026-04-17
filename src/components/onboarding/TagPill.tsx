@@ -1,4 +1,6 @@
-import { TouchableOpacity, Text, StyleSheet } from 'react-native';
+import { Pressable, Text, StyleSheet } from 'react-native';
+import Animated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
+import * as Haptics from 'expo-haptics';
 import { Colors, FontFamily, FontSize, Radius, Spacing } from '../../constants/theme';
 
 interface Props {
@@ -8,14 +10,31 @@ interface Props {
 }
 
 export function TagPill({ label, selected, onPress }: Props) {
+  const scale = useSharedValue(1);
+
+  const animStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+
+  const handlePress = () => {
+    scale.value = withSpring(0.92, { duration: 100 }, () => {
+      scale.value = withSpring(1, { duration: 180 });
+    });
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    onPress();
+  };
+
   return (
-    <TouchableOpacity
-      style={[styles.pill, selected && styles.pillSelected]}
-      onPress={onPress}
-      activeOpacity={0.7}
+    <Pressable
+      onPress={handlePress}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ selected }}
     >
-      <Text style={[styles.label, selected && styles.labelSelected]}>{label}</Text>
-    </TouchableOpacity>
+      <Animated.View style={[styles.pill, selected && styles.pillSelected, animStyle]}>
+        <Text style={[styles.label, selected && styles.labelSelected]}>{label}</Text>
+      </Animated.View>
+    </Pressable>
   );
 }
 

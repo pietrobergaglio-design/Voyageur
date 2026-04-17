@@ -1,5 +1,11 @@
 import { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, Pressable, StyleSheet } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  interpolate,
+} from 'react-native-reanimated';
 import { Colors, FontFamily, FontSize, Radius, Spacing } from '../../constants/theme';
 
 interface Props {
@@ -11,22 +17,33 @@ interface Props {
 
 export function DocSection({ title, emoji, children, defaultOpen = false }: Props) {
   const [open, setOpen] = useState(defaultOpen);
+  const rotation = useSharedValue(defaultOpen ? 1 : 0);
+
+  const chevronStyle = useAnimatedStyle(() => ({
+    transform: [
+      { rotate: `${interpolate(rotation.value, [0, 1], [90, -90])}deg` },
+    ],
+  }));
+
+  const toggle = () => {
+    const next = !open;
+    setOpen(next);
+    rotation.value = withTiming(next ? 1 : 0, { duration: 220 });
+  };
 
   return (
     <View style={styles.container}>
-      <TouchableOpacity
-        style={styles.header}
-        onPress={() => setOpen((v) => !v)}
-        activeOpacity={0.75}
-      >
+      <Pressable style={styles.header} onPress={toggle}>
         <View style={styles.titleRow}>
           <Text style={styles.emoji}>{emoji}</Text>
           <Text style={styles.title}>{title}</Text>
         </View>
-        <Text style={[styles.chevron, open && styles.chevronOpen]}>›</Text>
-      </TouchableOpacity>
+        <Animated.Text style={[styles.chevron, chevronStyle]}>›</Animated.Text>
+      </Pressable>
 
-      {open && <View style={styles.body}>{children}</View>}
+      {open && (
+        <View style={styles.body}>{children}</View>
+      )}
     </View>
   );
 }
@@ -44,6 +61,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     padding: Spacing.md,
+    minHeight: 52,
   },
   titleRow: {
     flexDirection: 'row',
@@ -62,11 +80,7 @@ const styles = StyleSheet.create({
     fontFamily: FontFamily.bodySemiBold,
     fontSize: 22,
     color: Colors.text.muted,
-    transform: [{ rotate: '90deg' }],
     lineHeight: 24,
-  },
-  chevronOpen: {
-    transform: [{ rotate: '-90deg' }],
   },
   body: {
     borderTopWidth: 1,

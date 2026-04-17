@@ -1,33 +1,65 @@
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { useEffect } from 'react';
+import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  withDelay,
+  Easing,
+} from 'react-native-reanimated';
+import * as Haptics from 'expo-haptics';
 import { OnboardingBackground } from '../../src/components/onboarding/OnboardingBackground';
 import { Colors, FontFamily, FontSize, Radius, Spacing } from '../../src/constants/theme';
 
 export default function OnboardingIntro() {
+  const contentOpacity = useSharedValue(0);
+  const contentTranslateY = useSharedValue(24);
+  const btnOpacity = useSharedValue(0);
+
+  useEffect(() => {
+    contentOpacity.value = withTiming(1, { duration: 500, easing: Easing.out(Easing.ease) });
+    contentTranslateY.value = withTiming(0, { duration: 500, easing: Easing.out(Easing.ease) });
+    btnOpacity.value = withDelay(300, withTiming(1, { duration: 400 }));
+  }, []);
+
+  const contentStyle = useAnimatedStyle(() => ({
+    opacity: contentOpacity.value,
+    transform: [{ translateY: contentTranslateY.value }],
+  }));
+
+  const btnStyle = useAnimatedStyle(() => ({
+    opacity: btnOpacity.value,
+  }));
+
+  const handleStart = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    router.push('/(onboarding)/step2');
+  };
+
   return (
     <OnboardingBackground>
       <SafeAreaView style={styles.safe}>
-        <View style={styles.content}>
+        <Animated.View style={[styles.content, contentStyle]}>
           <Text style={styles.globe}>🌍</Text>
           <Text style={styles.title}>Costruiamo il tuo{'\n'}profilo viaggiatore</Text>
           <Text style={styles.subtitle}>
             Qualche domanda per trovare esattamente quello che cerchi
           </Text>
-        </View>
+        </Animated.View>
 
-        <View style={styles.footer}>
+        <Animated.View style={[styles.footer, btnStyle]}>
           <SafeAreaView edges={['bottom']}>
-            <TouchableOpacity
-              style={styles.startBtn}
-              onPress={() => router.push('/(onboarding)/step2')}
-              activeOpacity={0.85}
+            <Pressable
+              style={({ pressed }) => [styles.startBtn, pressed && styles.startBtnPressed]}
+              onPress={handleStart}
             >
               <Text style={styles.startBtnText}>Iniziamo →</Text>
-            </TouchableOpacity>
+            </Pressable>
             <Text style={styles.note}>Meno di 1 minuto · Puoi cambiare tutto dopo</Text>
           </SafeAreaView>
-        </View>
+        </Animated.View>
       </SafeAreaView>
     </OnboardingBackground>
   );
@@ -72,6 +104,11 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     alignItems: 'center',
     marginBottom: Spacing.md,
+    minHeight: 52,
+    justifyContent: 'center',
+  },
+  startBtnPressed: {
+    opacity: 0.85,
   },
   startBtnText: {
     fontFamily: FontFamily.bodySemiBold,

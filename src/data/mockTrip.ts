@@ -2,15 +2,20 @@ import type { Trip } from '../types/trip';
 
 export const mockTokyoTrip: Trip = {
   id: 'mock-tokyo-2026',
+  name: 'Tokyo',
   destination: 'Tokyo',
   destinationCode: 'TYO',
   coverEmoji: '🗼',
   dateRange: '15 – 22 lug 2026',
-  status: 'upcoming',
+  checkIn: '2026-07-15T00:00:00',
+  checkOut: '2026-07-22T00:00:00',
+  status: 'booked',
   travelers: 2,
   totalPrice: 3012,
   currency: '€',
   bookingRef: 'VYG-2026-TKY',
+  createdAt: '2026-04-01T10:00:00',
+  bookedAt: '2026-04-01T10:05:00',
   items: [
     {
       id: 'fl-1',

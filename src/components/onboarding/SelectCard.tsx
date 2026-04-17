@@ -1,4 +1,6 @@
-import { TouchableOpacity, View, Text, StyleSheet } from 'react-native';
+import { View, Text, Pressable, StyleSheet } from 'react-native';
+import Animated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
+import * as Haptics from 'expo-haptics';
 import { Colors, FontFamily, FontSize, Radius, Spacing } from '../../constants/theme';
 
 interface Props {
@@ -10,16 +12,33 @@ interface Props {
 }
 
 export function SelectCard({ emoji, label, description, selected, onPress }: Props) {
+  const scale = useSharedValue(1);
+
+  const animStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+
+  const handlePress = () => {
+    scale.value = withSpring(0.93, { duration: 120 }, () => {
+      scale.value = withSpring(1, { duration: 200 });
+    });
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    onPress();
+  };
+
   return (
-    <TouchableOpacity
-      style={[styles.card, selected && styles.cardSelected]}
-      onPress={onPress}
-      activeOpacity={0.7}
+    <Pressable
+      onPress={handlePress}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ selected }}
     >
-      <Text style={styles.emoji}>{emoji}</Text>
-      <Text style={[styles.label, selected && styles.labelSelected]}>{label}</Text>
-      <Text style={styles.description} numberOfLines={2}>{description}</Text>
-    </TouchableOpacity>
+      <Animated.View style={[styles.card, selected && styles.cardSelected, animStyle]}>
+        <Text style={styles.emoji}>{emoji}</Text>
+        <Text style={[styles.label, selected && styles.labelSelected]}>{label}</Text>
+        <Text style={styles.description} numberOfLines={2}>{description}</Text>
+      </Animated.View>
+    </Pressable>
   );
 }
 

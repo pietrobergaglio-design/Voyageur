@@ -62,6 +62,8 @@ interface AppState {
   setUserProfile: (profile: UserProfile | null) => void;
   setOnboardingData: (data: Partial<OnboardingData>) => void;
   addTrip: (trip: Trip) => void;
+  updateTrip: (id: string, updates: Partial<Trip>) => void;
+  deleteTrip: (id: string) => void;
   updateTripStatus: (id: string, status: TripStatus) => void;
 }
 
@@ -70,11 +72,7 @@ export const useAppStore = create<AppState>()(
     (set) => ({
       _hasHydrated: false,
       isOnboardingComplete: false,
-      userPreferences: {
-        currency: 'EUR',
-        language: 'it',
-        notifications: true,
-      },
+      userPreferences: { currency: 'EUR', language: 'it', notifications: true },
       userProfile: null,
       onboardingData: defaultOnboarding,
       trips: [],
@@ -82,21 +80,21 @@ export const useAppStore = create<AppState>()(
       setHasHydrated: (value) => set({ _hasHydrated: value }),
       setOnboardingComplete: (value) => set({ isOnboardingComplete: value }),
       setUserPreferences: (prefs) =>
-        set((state) => ({
-          userPreferences: { ...state.userPreferences, ...prefs },
-        })),
+        set((state) => ({ userPreferences: { ...state.userPreferences, ...prefs } })),
       setUserProfile: (profile) => set({ userProfile: profile }),
       setOnboardingData: (data) =>
-        set((state) => ({
-          onboardingData: { ...state.onboardingData, ...data },
-        })),
+        set((state) => ({ onboardingData: { ...state.onboardingData, ...data } })),
       addTrip: (trip) =>
+        set((state) => ({ trips: [trip, ...state.trips] })),
+      updateTrip: (id, updates) =>
         set((state) => ({
-          trips: [trip, ...state.trips],
+          trips: state.trips.map((t) => t.id === id ? { ...t, ...updates } : t),
         })),
+      deleteTrip: (id) =>
+        set((state) => ({ trips: state.trips.filter((t) => t.id !== id) })),
       updateTripStatus: (id, status) =>
         set((state) => ({
-          trips: state.trips.map((t) => (t.id === id ? { ...t, status } : t)),
+          trips: state.trips.map((t) => t.id === id ? { ...t, status } : t),
         })),
     }),
     {
