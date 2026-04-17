@@ -184,12 +184,12 @@ export function PlaceAutocomplete({
   const renderRow = useCallback(
     (item: DropdownItem) => {
       if (item.kind === 'sectionLabel') {
-        return <Text style={styles.sectionLabel}>{item.title}</Text>;
+        return <Text key={`section-${item.title}`} style={styles.sectionLabel}>{item.title}</Text>;
       }
 
       if (item.kind === 'recent') {
         return (
-          <TouchableOpacity style={styles.row} onPress={() => selectPlace(item.place)} activeOpacity={0.7}>
+          <TouchableOpacity key={`recent-${item.place.iataCode}`} style={styles.row} onPress={() => selectPlace(item.place)} activeOpacity={0.7}>
             <Text style={styles.rowIcon}>🕐</Text>
             <View style={styles.textCol}>
               <Text style={styles.rowName} numberOfLines={1}>{item.place.displayName}</Text>
@@ -205,6 +205,7 @@ export function PlaceAutocomplete({
         const isExpanded = expandedCityId === s.id;
         return (
           <TouchableOpacity
+            key={`suggestion-${s.id}`}
             style={styles.row}
             activeOpacity={0.7}
             onPress={() => {
@@ -237,6 +238,7 @@ export function PlaceAutocomplete({
       if (item.kind === 'airport') {
         return (
           <TouchableOpacity
+            key={`airport-${item.airport.id}`}
             style={styles.airportRow}
             activeOpacity={0.7}
             onPress={() =>
@@ -257,7 +259,7 @@ export function PlaceAutocomplete({
       }
 
       if (item.kind === 'empty') {
-        return <Text style={styles.emptyText}>Nessun risultato per "{item.query}"</Text>;
+        return <Text key={`empty-${item.query}`} style={styles.emptyText}>Nessun risultato per "{item.query}"</Text>;
       }
 
       return null;
@@ -340,7 +342,7 @@ export function PlaceAutocomplete({
               nestedScrollEnabled
               decelerationRate="normal"
             >
-              {listData.map((item) => <React.Fragment key={item.key}>{renderRow(item)}</React.Fragment>)}
+              {listData.map(renderRow)}
             </ScrollView>
             {hasOverflow && (
               <LinearGradient
