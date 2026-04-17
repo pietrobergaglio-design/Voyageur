@@ -119,7 +119,13 @@ export default function Step11() {
             </SummaryCard>
           )}
 
-          <TouchableOpacity style={styles.editBtn} onPress={() => router.back()} activeOpacity={0.6}>
+          <TouchableOpacity
+            style={styles.editBtn}
+            onPress={() => router.replace('/(onboarding)/')}
+            activeOpacity={0.6}
+            accessibilityRole="button"
+            accessibilityLabel="Torna all'inizio e modifica le risposte"
+          >
             <Text style={styles.editText}>Modifica risposte</Text>
           </TouchableOpacity>
         </ScrollView>

@@ -30,8 +30,13 @@ export default function Step10() {
   const canProceed = firstName.trim().length > 0 && lastName.trim().length > 0;
 
   const handleNext = async () => {
+    if (!canProceed) return;
     if (passport.trim()) {
-      await SecureStore.setItemAsync(PASSPORT_KEY, passport.trim());
+      try {
+        await SecureStore.setItemAsync(PASSPORT_KEY, passport.trim());
+      } catch {
+        if (__DEV__) console.warn('[step10] SecureStore write failed — proceeding anyway');
+      }
     }
     router.push('/(onboarding)/step11');
   };
@@ -110,7 +115,7 @@ export default function Step10() {
                 value={passport}
                 onChangeText={setPassport}
                 autoCapitalize="characters"
-                secureTextEntry={false}
+                secureTextEntry
               />
               <Text style={styles.passportNote}>
                 🔒 Salvato solo sul tuo dispositivo, mai inviato a server esterni

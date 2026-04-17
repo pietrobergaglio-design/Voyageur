@@ -183,6 +183,7 @@ export default function SearchScreen() {
   const [hotelCacheAgeMs, setHotelCacheAgeMs] = useState<number | null>(null);
   const [results, setResults] = useState<SearchResults | null>(null);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [showDraftModal, setShowDraftModal] = useState(false);
   const [toastVisible, setToastVisible] = useState(false);
@@ -191,6 +192,7 @@ export default function SearchScreen() {
   useEffect(() => {
     return () => {
       if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     };
   }, []);
 
@@ -387,7 +389,7 @@ export default function SearchScreen() {
     setShowDraftModal(false);
     setToastMessage('Bozza salvata!');
     setToastVisible(true);
-    setTimeout(() => {
+    toastTimerRef.current = setTimeout(() => {
       setToastVisible(false);
       router.replace('/(tabs)/trips');
     }, 1800);

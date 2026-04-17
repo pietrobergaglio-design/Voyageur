@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { CartItem, SearchParams, SearchResults, Currency } from '../types/booking';
+import type { CartItem, CartItemType, SearchParams, SearchResults, Currency } from '../types/booking';
 import type { TravelerInfo, PaymentTab, NewCardData, CheckoutSnapshot } from '../types/checkout';
 
 const TAX_RATE = 0.08;
@@ -28,7 +28,7 @@ export interface PendingDraftRestore {
   checkIn: string;
   checkOut: string;
   travelers: number;
-  itemIds: Array<{ type: string; offerId: string }>;
+  itemIds: Array<{ type: CartItemType; offerId: string }>;
 }
 
 interface CheckoutState {

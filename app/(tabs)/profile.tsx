@@ -1,4 +1,4 @@
-import { View, Text, ScrollView, StyleSheet, StatusBar, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, StatusBar, TouchableOpacity, Alert, Linking } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppStore } from '../../src/stores/useAppStore';
 import { SliderBar } from '../../src/components/profile/SliderBar';
@@ -214,7 +214,11 @@ export default function ProfileScreen() {
         {/* App info */}
         <View style={styles.appInfo}>
           <Text style={styles.appInfoText}>Voyageur · v1.0.0</Text>
-          <TouchableOpacity onPress={handleEdit}>
+          <TouchableOpacity
+            onPress={() => Linking.openURL('https://voyageur.app/privacy')}
+            accessibilityRole="link"
+            accessibilityLabel="Apri Privacy e Termini"
+          >
             <Text style={styles.appInfoLink}>Privacy & Termini</Text>
           </TouchableOpacity>
         </View>

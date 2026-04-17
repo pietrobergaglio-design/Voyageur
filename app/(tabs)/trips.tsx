@@ -38,13 +38,12 @@ export default function TripsScreen() {
   const insets = useSafeAreaInsets();
   const storeTrips = useAppStore((s) => s.trips);
 
-  const allTrips = storeTrips.length > 0 ? storeTrips : [mockTokyoTrip];
+  const isEmpty = storeTrips.length === 0;
+  const allTrips = isEmpty ? [mockTokyoTrip] : storeTrips;
 
   const drafts = allTrips.filter((t) => t.status === 'draft');
   const booked = allTrips.filter((t) => t.status === 'booked' || t.status === 'active');
   const past = allTrips.filter((t) => t.status === 'past');
-
-  const isEmpty = allTrips.length === 0;
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>

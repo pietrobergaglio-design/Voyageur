@@ -147,10 +147,15 @@ function NewCard() {
   );
 }
 
-function ApplePay() {
+function ApplePay({ onPay }: { onPay: () => void }) {
   return (
     <View style={styles.applePayWrap}>
-      <Pressable style={styles.applePayBtn}>
+      <Pressable
+        style={({ pressed }) => [styles.applePayBtn, pressed && { opacity: 0.85 }]}
+        onPress={onPay}
+        accessibilityRole="button"
+        accessibilityLabel="Paga con Apple Pay"
+      >
         <Text style={styles.applePayText}> Paga con Apple Pay</Text>
       </Pressable>
       <Text style={styles.applePayNote}>
@@ -203,7 +208,7 @@ export default function PaymentScreen() {
 
         {paymentTab === 'saved' && <SavedCard />}
         {paymentTab === 'new' && <NewCard />}
-        {paymentTab === 'apple_pay' && <ApplePay />}
+        {paymentTab === 'apple_pay' && <ApplePay onPay={handlePay} />}
       </ScrollView>
 
       <SafeAreaView edges={['bottom']} style={styles.footer}>

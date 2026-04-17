@@ -1,4 +1,4 @@
-import { View, Text, TextInput, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, StyleSheet } from 'react-native';
 import { DateRangePicker } from './DateRangePicker';
 import { TravelerSelector } from './TravelerSelector';
 import type { SearchParams } from '../../types/booking';
@@ -29,7 +29,7 @@ export function SearchBar({ params, onChange, onSearch, isLoading }: Props) {
           autoCapitalize="words"
         />
         {params.origin.length > 0 && (
-          <TouchableOpacity onPress={() => update({ origin: '', originCode: '' })} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <TouchableOpacity onPress={() => update({ origin: '', originCode: '' })} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} accessibilityLabel="Cancella partenza">
             <Text style={styles.clear}>✕</Text>
           </TouchableOpacity>
         )}
@@ -49,7 +49,7 @@ export function SearchBar({ params, onChange, onSearch, isLoading }: Props) {
           autoCapitalize="words"
         />
         {params.destination.length > 0 && (
-          <TouchableOpacity onPress={() => update({ destination: '', destinationCode: '' })} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <TouchableOpacity onPress={() => update({ destination: '', destinationCode: '' })} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} accessibilityLabel="Cancella destinazione">
             <Text style={styles.clear}>✕</Text>
           </TouchableOpacity>
         )}
@@ -75,10 +75,18 @@ export function SearchBar({ params, onChange, onSearch, isLoading }: Props) {
         onPress={onSearch}
         activeOpacity={0.85}
         disabled={isLoading}
+        accessibilityRole="button"
+        accessibilityLabel={isLoading ? 'Ricerca in corso' : 'Cerca tutto'}
+        accessibilityState={{ disabled: !!isLoading }}
       >
-        <Text style={styles.searchBtnText}>
-          {isLoading ? 'Ricerca in corso…' : 'Cerca tutto 🔍'}
-        </Text>
+        {isLoading ? (
+          <View style={styles.searchBtnInner}>
+            <ActivityIndicator size="small" color="#fff" />
+            <Text style={styles.searchBtnText}>Ricerca in corso…</Text>
+          </View>
+        ) : (
+          <Text style={styles.searchBtnText}>Cerca tutto 🔍</Text>
+        )}
       </TouchableOpacity>
     </View>
   );
@@ -130,9 +138,16 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     alignItems: 'center',
     marginTop: Spacing.xs,
+    minHeight: 48,
+    justifyContent: 'center',
   },
   searchBtnLoading: {
-    opacity: 0.7,
+    opacity: 0.75,
+  },
+  searchBtnInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   searchBtnText: {
     fontFamily: FontFamily.bodySemiBold,

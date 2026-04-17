@@ -76,9 +76,10 @@ export default function Step8() {
           <SafeAreaView edges={['bottom']}>
             <TouchableOpacity
               style={[styles.nextBtn, companion === '' && styles.nextBtnDisabled]}
-              onPress={() => router.push('/(onboarding)/step9')}
+              onPress={() => companion && router.push('/(onboarding)/step9')}
               activeOpacity={0.85}
               disabled={companion === ''}
+              accessibilityRole="button"
             >
               <Text style={styles.nextBtnText}>
                 {companion === '' ? 'Seleziona un\'opzione' : 'Avanti →'}
