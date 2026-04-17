@@ -7,6 +7,7 @@ export type RefundPolicy = 'flexible' | 'moderate' | 'strict';
 export type MatchTag =
   | 'best_match'
   | 'cheapest'
+  | 'fastest'
   | 'premium'
   | 'most_popular'
   | 'high_coverage';
@@ -23,13 +24,20 @@ export interface FlightSegment {
   aircraft?: string;
 }
 
+export interface BaggageAllowance {
+  type: 'checked' | 'carry_on';
+  quantity: number;
+}
+
 export interface FlightOffer {
   id: string;
   provider: 'duffel';
   airline: string;
   airlineCode: string;
+  logoUrl?: string;
   segments: FlightSegment[];
   stops: number;
+  stopoverCities?: string[];
   price: number;
   currency: Currency;
   refundPolicy: RefundPolicy;
@@ -37,6 +45,8 @@ export interface FlightOffer {
   tags: MatchTag[];
   cabin: 'economy' | 'premium_economy' | 'business' | 'first';
   baggageIncluded: boolean;
+  baggage?: BaggageAllowance[];
+  rawOffer?: unknown;
 }
 
 // ─── Hotel ───────────────────────────────────────────────────────────────────
@@ -123,6 +133,8 @@ export interface VisaInfo {
 // ─── Search ──────────────────────────────────────────────────────────────────
 
 export interface SearchParams {
+  origin: string;
+  originCode: string;
   destination: string;
   destinationCode?: string;
   checkIn: Date;

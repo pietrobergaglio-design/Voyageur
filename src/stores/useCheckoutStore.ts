@@ -21,6 +21,8 @@ const defaultCard: NewCardData = {
 
 export interface PendingDraftRestore {
   tripId: string;
+  origin?: string;
+  originCode?: string;
   destination: string;
   destinationCode: string;
   checkIn: string;

@@ -34,9 +34,11 @@ export function ResultSection({ title, count, children, defaultExpanded = true }
       <Pressable style={styles.header} onPress={toggle}>
         <View style={styles.titleRow}>
           <Text style={styles.title}>{title}</Text>
-          <View style={styles.badge}>
-            <Text style={styles.badgeText}>{count}</Text>
-          </View>
+          {count > 0 && (
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>{count}</Text>
+            </View>
+          )}
         </View>
         <Animated.Text style={[styles.chevron, chevronStyle]}>∨</Animated.Text>
       </Pressable>

@@ -23,6 +23,7 @@ function MatchTagBadge({ tag }: { tag: MatchTag }) {
   const config: Record<MatchTag, { label: string; bg: string; color: string }> = {
     best_match:    { label: 'Best match',    bg: Colors.teal + '20',  color: Colors.teal },
     cheapest:      { label: 'Più economico', bg: '#22a06b20',          color: '#22a06b' },
+    fastest:       { label: 'Più veloce',    bg: '#0ea5e920',          color: '#0ea5e9' },
     premium:       { label: 'Premium',       bg: Colors.accent + '20', color: Colors.accent },
     most_popular:  { label: 'Più popolare',  bg: '#7c3aed20',          color: '#7c3aed' },
     high_coverage: { label: 'Alta copertura',bg: Colors.navy + '15',   color: Colors.navy },

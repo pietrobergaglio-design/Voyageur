@@ -878,6 +878,8 @@ export default function TripDetailScreen() {
       currency,
     }));
     const searchParams: SearchParams = {
+      origin: 'Milano, Italia',
+      originCode: 'MXP',
       destination: trip.destination,
       destinationCode: trip.destinationCode,
       checkIn: trip.checkIn ? new Date(trip.checkIn) : checkIn,

@@ -18,24 +18,53 @@ import { InsuranceCard } from '../../src/components/search/InsuranceCard';
 import { VisaCard } from '../../src/components/search/VisaCard';
 import { CartBar } from '../../src/components/search/CartBar';
 
-import { getMockResults } from '../../src/data/mockSearch';
-import type { SearchParams, SearchResults, CartItem } from '../../src/types/booking';
+import { getMockResults, DEFAULT_SEARCH_PARAMS } from '../../src/data/mockSearch';
+import { searchFlights, DuffelError } from '../../src/services/duffel';
+import type { SearchParams, SearchResults, CartItem, FlightOffer } from '../../src/types/booking';
 import type { Trip } from '../../src/types/trip';
 import { Colors, FontFamily, FontSize, Spacing, Radius } from '../../src/constants/theme';
 
 const CART_BAR_HEIGHT = 88;
 
-const DEFAULT_PARAMS: SearchParams = {
-  destination: 'Tokyo, Giappone',
-  destinationCode: 'NRT',
-  checkIn: new Date(2026, 6, 15),
-  checkOut: new Date(2026, 6, 22),
-  travelers: 2,
-};
-
 function nightsBetween(from: Date, to: Date) {
   return Math.max(1, Math.round((to.getTime() - from.getTime()) / 86_400_000));
 }
+
+// ─── FlightSkeleton ───────────────────────────────────────────────────────────
+
+function FlightSkeleton() {
+  return (
+    <View style={skStyles.card}>
+      <View style={[skStyles.bar, { width: '40%', height: 14 }]} />
+      <View style={skStyles.routeRow}>
+        <View style={[skStyles.bar, { width: 52, height: 28 }]} />
+        <View style={[skStyles.bar, { flex: 1, height: 2, marginHorizontal: 8 }]} />
+        <View style={[skStyles.bar, { width: 52, height: 28 }]} />
+      </View>
+      <View style={[skStyles.bar, { width: '60%', height: 12 }]} />
+    </View>
+  );
+}
+
+const skStyles = StyleSheet.create({
+  card: {
+    backgroundColor: Colors.white,
+    borderRadius: Radius.md,
+    borderWidth: 1.5,
+    borderColor: Colors.border,
+    padding: Spacing.md,
+    gap: Spacing.sm,
+  },
+  bar: {
+    backgroundColor: Colors.border,
+    borderRadius: 4,
+  },
+  routeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 4,
+  },
+});
 
 // ─── SaveDraftModal ───────────────────────────────────────────────────────────
 
@@ -114,10 +143,12 @@ export default function SearchScreen() {
   const pendingDraftRestore = useCheckoutStore((s) => s.pendingDraftRestore);
   const setPendingDraftRestore = useCheckoutStore((s) => s.setPendingDraftRestore);
   const addTrip = useAppStore((s) => s.addTrip);
+  const onboardingData = useAppStore((s) => s.onboardingData);
 
-  const [params, setParams] = useState<SearchParams>(DEFAULT_PARAMS);
+  const [params, setParams] = useState<SearchParams>(DEFAULT_SEARCH_PARAMS);
   const [hasSearched, setHasSearched] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
+  const [isFlightsLoading, setIsFlightsLoading] = useState(false);
   const [results, setResults] = useState<SearchResults | null>(null);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -146,6 +177,8 @@ export default function SearchScreen() {
       setPendingDraftRestore(null);
 
       const restoredParams: SearchParams = {
+        origin: restore.origin ?? DEFAULT_SEARCH_PARAMS.origin,
+        originCode: restore.originCode ?? DEFAULT_SEARCH_PARAMS.originCode,
         destination: restore.destination,
         destinationCode: restore.destinationCode,
         checkIn: new Date(restore.checkIn),
@@ -168,20 +201,48 @@ export default function SearchScreen() {
     }, [pendingDraftRestore]),
   );
 
-  const handleSearch = () => {
+  const handleSearch = async () => {
     setIsSearching(true);
+    setIsFlightsLoading(true);
     setResults(null);
     setSelectedFlight(null);
     setSelectedHotel(null);
     setSelectedTransports([]);
     setSelectedActivities([]);
     setSelectedInsurance(null);
-    searchTimerRef.current = setTimeout(() => {
-      const r = getMockResults(params);
-      setResults(r);
-      setHasSearched(true);
-      setIsSearching(false);
-    }, 800);
+
+    // Load non-flight results immediately from mock
+    const mockBase = getMockResults(params);
+    const partialResults: SearchResults = {
+      ...mockBase,
+      flights: [],
+    };
+    setResults(partialResults);
+    setHasSearched(true);
+    setIsSearching(false);
+
+    // Fetch real flights from Duffel
+    let realFlights: FlightOffer[] | null = null;
+    try {
+      realFlights = await searchFlights(params, onboardingData);
+    } catch (err) {
+      if (__DEV__) console.warn('[search] Duffel error:', err);
+      const msg = err instanceof DuffelError
+        ? 'Ricerca voli non disponibile, riprova'
+        : 'Ricerca voli non disponibile, riprova';
+      setToastMessage(msg);
+      setToastVisible(true);
+    } finally {
+      setIsFlightsLoading(false);
+    }
+
+    setResults((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        flights: realFlights ?? mockBase.flights,
+      };
+    });
   };
 
   const toggleTransport = (id: string) =>
@@ -274,7 +335,7 @@ export default function SearchScreen() {
         keyboardShouldPersistTaps="handled"
       >
         <Text style={styles.heading}>Cerca</Text>
-        <SearchBar params={params} onChange={setParams} onSearch={handleSearch} />
+        <SearchBar params={params} onChange={setParams} onSearch={handleSearch} isLoading={isSearching || isFlightsLoading} />
 
         {isSearching && (
           <View style={styles.loadingState}>
@@ -302,10 +363,26 @@ export default function SearchScreen() {
               </Text>
             </View>
 
-            <ResultSection title="✈️ Voli" count={results.flights.length}>
-              {results.flights.map((f) => (
-                <FlightCard key={f.id} flight={f} selected={selectedFlight === f.id} onSelect={() => setSelectedFlight(f.id === selectedFlight ? null : f.id)} />
-              ))}
+            {/* ✈️ Voli — real Duffel or skeleton */}
+            <ResultSection title="✈️ Voli" count={isFlightsLoading ? 0 : results.flights.length}>
+              {isFlightsLoading ? (
+                <>
+                  <FlightSkeleton />
+                  <FlightSkeleton />
+                  <FlightSkeleton />
+                </>
+              ) : results.flights.length === 0 ? (
+                <View style={styles.flightEmpty}>
+                  <Text style={styles.flightEmptyText}>Nessun volo trovato per queste date</Text>
+                </View>
+              ) : (
+                <>
+                  {results.flights.map((f) => (
+                    <FlightCard key={f.id} flight={f} selected={selectedFlight === f.id} onSelect={() => setSelectedFlight(f.id === selectedFlight ? null : f.id)} />
+                  ))}
+                  <Text style={styles.poweredBy}>Voli in tempo reale · Powered by Duffel</Text>
+                </>
+              )}
             </ResultSection>
 
             <ResultSection title="🏨 Hotel" count={results.hotels.length}>
@@ -388,4 +465,14 @@ const styles = StyleSheet.create({
   resultsHeader: { paddingHorizontal: Spacing.lg, paddingBottom: Spacing.lg, gap: 3 },
   resultsTitle: { fontFamily: FontFamily.bodySemiBold, fontSize: FontSize.lg, color: Colors.text.primary },
   resultsSubtitle: { fontFamily: FontFamily.body, fontSize: FontSize.sm, color: Colors.text.muted },
+  flightEmpty: { paddingVertical: Spacing.lg, alignItems: 'center' },
+  flightEmptyText: { fontFamily: FontFamily.body, fontSize: FontSize.sm, color: Colors.text.muted },
+  poweredBy: {
+    fontFamily: FontFamily.body,
+    fontSize: FontSize.xs,
+    color: Colors.text.muted,
+    textAlign: 'center',
+    paddingTop: Spacing.xs,
+    paddingBottom: Spacing.sm,
+  },
 });

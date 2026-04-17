@@ -16,6 +16,25 @@ export function SearchBar({ params, onChange, onSearch, isLoading }: Props) {
 
   return (
     <View style={styles.container}>
+      {/* Origin */}
+      <View style={styles.inputRow}>
+        <Text style={styles.inputIcon}>🛫</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="Da dove parti?"
+          placeholderTextColor={Colors.text.muted}
+          value={params.origin}
+          onChangeText={(v) => update({ origin: v, originCode: '' })}
+          returnKeyType="next"
+          autoCapitalize="words"
+        />
+        {params.origin.length > 0 && (
+          <TouchableOpacity onPress={() => update({ origin: '', originCode: '' })} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Text style={styles.clear}>✕</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+
       {/* Destination */}
       <View style={styles.inputRow}>
         <Text style={styles.inputIcon}>📍</Text>
@@ -24,13 +43,13 @@ export function SearchBar({ params, onChange, onSearch, isLoading }: Props) {
           placeholder="Dove vuoi andare?"
           placeholderTextColor={Colors.text.muted}
           value={params.destination}
-          onChangeText={(v) => update({ destination: v })}
+          onChangeText={(v) => update({ destination: v, destinationCode: '' })}
           returnKeyType="search"
           onSubmitEditing={onSearch}
           autoCapitalize="words"
         />
         {params.destination.length > 0 && (
-          <TouchableOpacity onPress={() => update({ destination: '' })} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <TouchableOpacity onPress={() => update({ destination: '', destinationCode: '' })} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
             <Text style={styles.clear}>✕</Text>
           </TouchableOpacity>
         )}

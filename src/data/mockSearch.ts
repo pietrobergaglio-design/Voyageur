@@ -308,6 +308,16 @@ export const mockVisa: VisaInfo = {
 
 // ─── Mock Search Results ──────────────────────────────────────────────────────
 
+export const DEFAULT_SEARCH_PARAMS: SearchParams = {
+  origin: 'Milano, Italia',
+  originCode: 'MXP',
+  destination: 'Tokyo, Giappone',
+  destinationCode: 'NRT',
+  checkIn: new Date(2026, 6, 15),
+  checkOut: new Date(2026, 6, 22),
+  travelers: 2,
+};
+
 export function getMockResults(params: SearchParams): SearchResults {
   return {
     params,
