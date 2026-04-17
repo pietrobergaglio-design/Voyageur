@@ -4,7 +4,7 @@ export type TripStatus = 'draft' | 'booked' | 'active' | 'past';
 
 export interface TripItem {
   id: string;
-  type: 'flight' | 'hotel' | 'transport' | 'activity' | 'insurance';
+  type: 'flight' | 'hotel' | 'car' | 'activity' | 'insurance';
   title: string;
   subtitle: string;
   dateLabel: string;

@@ -38,12 +38,12 @@ export interface FlightOffer {
   segments: FlightSegment[];
   stops: number;
   stopoverCities?: string[];
-  /** Total door-to-door minutes including layovers (from slice.duration). Preferred over summing segment durations. */
+  /** Total door-to-door minutes including layovers (from slice.duration). */
   totalDurationMinutes?: number;
   price: number;
   currency: Currency;
   refundPolicy: RefundPolicy;
-  matchScore: number;         // 0-100
+  matchScore: number;
   tags: MatchTag[];
   cabin: 'economy' | 'premium_economy' | 'business' | 'first';
   baggageIncluded: boolean;
@@ -61,11 +61,11 @@ export interface HotelOffer {
   stars: 0 | 1 | 2 | 3 | 4 | 5;
   thumbnailUrl?: string;
   photoUrls?: string[];
-  rating?: number;            // 0-10 from review score
+  rating?: number;
   reviewCount?: number;
-  reviewWord?: string;        // "Favoloso", "Eccellente", ecc.
+  reviewWord?: string;
   hasFreeCancellation?: boolean;
-  originalPrice?: number;     // strikethrough price
+  originalPrice?: number;
   pricePerNight: number;
   totalPrice: number;
   currency: Currency;
@@ -76,38 +76,56 @@ export interface HotelOffer {
   rawHotel?: unknown;
 }
 
-// ─── Transport ───────────────────────────────────────────────────────────────
+// ─── Car Rental ──────────────────────────────────────────────────────────────
 
-export type TransportType = 'car_rental' | 'rail_pass' | 'shuttle' | 'ferry';
-
-export interface TransportOffer {
+export interface CarOffer {
   id: string;
-  provider: 'expedia' | 'local';
-  type: TransportType;
-  name: string;
-  description: string;
-  pricePerDay?: number;
+  provider: 'booking_cars' | 'mock';
+  name: string;             // "Toyota Yaris"
+  category: string;         // "Economy", "Compact", "SUV"
+  company: string;          // "Hertz", "Budget", "Sixt"
+  companyLogoUrl?: string;
+  imageUrl?: string;
+  pricePerDay: number;
   totalPrice: number;
   currency: Currency;
+  days: number;
+  transmission: 'automatic' | 'manual';
+  seats: number;
+  doors: number;
+  hasAC: boolean;
+  freeKm: 'unlimited' | 'limited';
+  pickupLocation: string;
+  insuranceIncluded: boolean;
   refundPolicy: RefundPolicy;
+  matchScore: number;
   tags: MatchTag[];
-  highlights: string[];
+  rawOffer?: unknown;
 }
 
 // ─── Activity ────────────────────────────────────────────────────────────────
 
 export interface ActivityOffer {
   id: string;
-  provider: 'viator';
+  provider: 'viator' | 'booking_attractions';
   name: string;
-  emoji: string;
-  suggestedDay: string;       // e.g. 'Giorno 1'
+  slug?: string;
+  emoji?: string;
+  shortDescription?: string;
+  suggestedDay?: string;
   durationHours: number;
+  durationLabel?: string;   // "3 ore", "Giornata intera"
   price: number;
   currency: Currency;
+  rating?: number;
+  reviewCount?: number;
+  thumbnailUrl?: string;
+  photoUrls?: string[];
+  hasFreeCancellation?: boolean;
   matchScore: number;
   tags: MatchTag[];
   highlights: string[];
+  rawOffer?: unknown;
 }
 
 // ─── Insurance ───────────────────────────────────────────────────────────────
@@ -130,13 +148,17 @@ export type VisaStatus = 'not_required' | 'evisa' | 'on_arrival' | 'required';
 
 export interface VisaInfo {
   destination: string;
+  destinationFlag?: string;
   forNationality: string;
   status: VisaStatus;
+  statusLabel: string;      // "✅ Non richiesto" | "🟡 eVisa" | "🔴 Visto richiesto"
   details: string;
+  requirements?: string[];
   processingDays?: number;
   fee?: number;
   feeCurrency?: Currency;
   link?: string;
+  applyLink?: string;
 }
 
 // ─── Search ──────────────────────────────────────────────────────────────────
@@ -155,7 +177,7 @@ export interface SearchResults {
   params: SearchParams;
   flights: FlightOffer[];
   hotels: HotelOffer[];
-  transports: TransportOffer[];
+  cars: CarOffer[];
   activities: ActivityOffer[];
   insurance: InsurancePlan[];
   visa?: VisaInfo;
@@ -163,7 +185,7 @@ export interface SearchResults {
 
 // ─── Cart ────────────────────────────────────────────────────────────────────
 
-export type CartItemType = 'flight' | 'hotel' | 'transport' | 'activity' | 'insurance';
+export type CartItemType = 'flight' | 'hotel' | 'car' | 'activity' | 'insurance';
 
 export interface CartItem {
   type: CartItemType;

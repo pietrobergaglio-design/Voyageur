@@ -106,7 +106,7 @@ function TicketCard({ item }: { item: TripItem }) {
     flight: '✈️',
     hotel: '🏨',
     activity: '🎟️',
-    transport: '🚆',
+    car: '🚗',
     insurance: '🛡️',
   };
 

@@ -1,7 +1,7 @@
 import type {
   FlightOffer,
   HotelOffer,
-  TransportOffer,
+  CarOffer,
   ActivityOffer,
   InsurancePlan,
   VisaInfo,
@@ -157,33 +157,50 @@ export const mockHotels: HotelOffer[] = [
   },
 ];
 
-// ─── Mock Transports (provider: Expedia / local) ──────────────────────────────
+// ─── Mock Cars (fallback) ─────────────────────────────────────────────────────
 
-export const mockTransports: TransportOffer[] = [
+export const mockCars: CarOffer[] = [
   {
-    id: 'TR001',
-    provider: 'expedia',
-    type: 'car_rental',
-    name: 'Budget · Toyota Corolla',
-    description: 'Auto economica con navigatore, assicurazione inclusa',
-    pricePerDay: 65,
-    totalPrice: 455,
+    id: 'CAR001',
+    provider: 'mock',
+    name: 'Toyota Yaris',
+    category: 'Economy',
+    company: 'Budget',
+    pricePerDay: 38,
+    totalPrice: 266,
     currency: 'EUR',
+    days: 7,
+    transmission: 'manual',
+    seats: 5,
+    doors: 4,
+    hasAC: true,
+    freeKm: 'unlimited',
+    pickupLocation: 'Tokyo Airport',
+    insuranceIncluded: true,
     refundPolicy: 'flexible',
-    tags: [],
-    highlights: ['Navigatore GPS', 'Assicurazione base', 'Km illimitati'],
+    matchScore: 85,
+    tags: ['cheapest'],
   },
   {
-    id: 'TR002',
-    provider: 'local',
-    type: 'rail_pass',
-    name: 'JR Pass 7 giorni',
-    description: 'Shinkansen + treni regionali illimitati in tutto il Giappone',
-    totalPrice: 390,
+    id: 'CAR002',
+    provider: 'mock',
+    name: 'Toyota Corolla',
+    category: 'Compact',
+    company: 'Hertz',
+    pricePerDay: 58,
+    totalPrice: 406,
     currency: 'EUR',
-    refundPolicy: 'strict',
+    days: 7,
+    transmission: 'automatic',
+    seats: 5,
+    doors: 4,
+    hasAC: true,
+    freeKm: 'unlimited',
+    pickupLocation: 'Tokyo Airport',
+    insuranceIncluded: true,
+    refundPolicy: 'moderate',
+    matchScore: 90,
     tags: ['best_match'],
-    highlights: ['Shinkansen incluso', 'Tutte le linee JR', 'Incluso Narita Express'],
   },
 ];
 
@@ -312,10 +329,13 @@ export const mockInsurance: InsurancePlan[] = [
 
 export const mockVisa: VisaInfo = {
   destination: 'Giappone',
+  destinationFlag: '🇯🇵',
   forNationality: 'IT',
   status: 'not_required',
+  statusLabel: '✅ Non richiesto',
   details:
     'I cittadini italiani non necessitano di visto per soggiorni turistici fino a 90 giorni.',
+  requirements: ['Passaporto valido (almeno 6 mesi)', 'Volo di ritorno'],
 };
 
 // ─── Mock Search Results ──────────────────────────────────────────────────────
@@ -335,7 +355,7 @@ export function getMockResults(params: SearchParams): SearchResults {
     params,
     flights: mockFlights,
     hotels: mockHotels,
-    transports: mockTransports,
+    cars: mockCars,
     activities: mockActivities,
     insurance: mockInsurance,
     visa: mockVisa,

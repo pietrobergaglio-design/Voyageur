@@ -10,12 +10,21 @@ import { Colors, FontFamily, FontSize, Spacing } from '../../constants/theme';
 
 interface Props {
   title: string;
-  count: number;
+  /** Total items available (controls badge). Pass 0 while loading. */
+  totalCount: number;
+  /** Items currently shown — displayed as "X di Y" when < totalCount. */
+  visibleCount?: number;
   children: React.ReactNode;
   defaultExpanded?: boolean;
 }
 
-export function ResultSection({ title, count, children, defaultExpanded = true }: Props) {
+export function ResultSection({
+  title,
+  totalCount,
+  visibleCount,
+  children,
+  defaultExpanded = true,
+}: Props) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const rotation = useSharedValue(defaultExpanded ? 1 : 0);
 
@@ -29,14 +38,17 @@ export function ResultSection({ title, count, children, defaultExpanded = true }
     rotation.value = withTiming(next ? 1 : 0, { duration: 220 });
   };
 
+  const showCount = visibleCount !== undefined && totalCount > 0 && visibleCount < totalCount;
+  const countLabel = showCount ? `${visibleCount} di ${totalCount}` : totalCount > 0 ? String(totalCount) : null;
+
   return (
     <View style={styles.container}>
       <Pressable style={styles.header} onPress={toggle}>
         <View style={styles.titleRow}>
           <Text style={styles.title}>{title}</Text>
-          {count > 0 && (
+          {countLabel && (
             <View style={styles.badge}>
-              <Text style={styles.badgeText}>{count}</Text>
+              <Text style={styles.badgeText}>{countLabel}</Text>
             </View>
           )}
         </View>
@@ -74,11 +86,10 @@ const styles = StyleSheet.create({
   badge: {
     backgroundColor: Colors.accent,
     borderRadius: 10,
-    minWidth: 20,
     height: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 6,
+    paddingHorizontal: 7,
   },
   badgeText: {
     fontFamily: FontFamily.bodySemiBold,

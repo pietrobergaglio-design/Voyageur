@@ -1,6 +1,20 @@
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import type { TransportOffer } from '../../types/booking';
+import type { RefundPolicy, MatchTag } from '../../types/booking';
 import { RefundBadge, MatchTagBadge } from './FlightCard';
+
+// Legacy component — kept for reference, replaced by CarCard
+interface TransportOffer {
+  id: string;
+  type: string;
+  name: string;
+  description: string;
+  pricePerDay?: number;
+  totalPrice: number;
+  currency: string;
+  refundPolicy: RefundPolicy;
+  tags: MatchTag[];
+  highlights: string[];
+}
 import { Colors, FontFamily, FontSize, Radius, Spacing } from '../../constants/theme';
 
 const TYPE_EMOJI: Record<string, string> = {

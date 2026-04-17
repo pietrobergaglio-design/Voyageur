@@ -52,9 +52,9 @@ function buildTrip(snapshot: NonNullable<ReturnType<typeof useCheckoutStore.getS
       const h = results.hotels.find((x) => x.id === ci.offerId);
       if (h) return { ...base, subtitle: `${h.name} · ${h.zone}`, refundPolicy: h.refundPolicy };
     }
-    if (ci.type === 'transport') {
-      const t = results.transports.find((x) => x.id === ci.offerId);
-      if (t) return { ...base, subtitle: t.description, refundPolicy: t.refundPolicy };
+    if (ci.type === 'car') {
+      const c = results.cars.find((x) => x.id === ci.offerId);
+      if (c) return { ...base, subtitle: `${c.company} · ${c.name} · ${c.days} giorni`, refundPolicy: c.refundPolicy };
     }
     if (ci.type === 'activity') {
       const a = results.activities.find((x) => x.id === ci.offerId);

@@ -8,7 +8,7 @@ import type { CartItem } from '../../src/types/booking';
 const ITEM_EMOJI: Record<CartItem['type'], string> = {
   flight: '✈️',
   hotel: '🏨',
-  transport: '🚗',
+  car: '🚗',
   activity: '🎯',
   insurance: '🏥',
 };
@@ -16,7 +16,7 @@ const ITEM_EMOJI: Record<CartItem['type'], string> = {
 const ITEM_LABEL: Record<CartItem['type'], string> = {
   flight: 'Volo',
   hotel: 'Hotel',
-  transport: 'Trasporto',
+  car: 'Auto',
   activity: 'Attività',
   insurance: 'Assicurazione',
 };
@@ -95,9 +95,9 @@ export default function SummaryScreen() {
       const nights = Math.round((p.checkOut.getTime() - p.checkIn.getTime()) / 86_400_000);
       if (h) return `${h.zone} · ${nights} notti · ★${'★'.repeat(h.stars - 1)}`;
     }
-    if (item.type === 'transport') {
-      const t = results.transports.find((x) => x.id === item.offerId);
-      if (t) return t.description;
+    if (item.type === 'car') {
+      const c = results.cars.find((x) => x.id === item.offerId);
+      if (c) return `${c.category} · ${c.days} giorni · ${c.transmission === 'automatic' ? 'Automatico' : 'Manuale'}`;
     }
     if (item.type === 'activity') {
       const a = results.activities.find((x) => x.id === item.offerId);

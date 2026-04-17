@@ -5,7 +5,7 @@ import { Colors, FontFamily, FontSize, Radius, Spacing } from '../../constants/t
 const TYPE_CONFIG: Record<TripItem['type'], { emoji: string; color: string }> = {
   flight:    { emoji: '✈️', color: Colors.navy },
   hotel:     { emoji: '🏨', color: Colors.teal },
-  transport: { emoji: '🚆', color: '#7c3aed' },
+  car:       { emoji: '🚗', color: '#7c3aed' },
   activity:  { emoji: '🎟️', color: Colors.accent },
   insurance: { emoji: '🛡️', color: '#d97706' },
 };

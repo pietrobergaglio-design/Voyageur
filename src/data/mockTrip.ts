@@ -55,7 +55,7 @@ export const mockTokyoTrip: Trip = {
     },
     {
       id: 'tr-1',
-      type: 'transport',
+      type: 'car',
       title: 'JR Pass 7 giorni',
       subtitle: 'Illimitato su treni JR',
       dateLabel: '15 – 22 lug 2026',

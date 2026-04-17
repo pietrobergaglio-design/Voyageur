@@ -683,7 +683,7 @@ const cfgStyles = StyleSheet.create({
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
 const ITEM_EMOJI: Record<TripItem['type'], string> = {
-  flight: '✈️', hotel: '🏨', activity: '🎟️', transport: '🚆', insurance: '🛡️',
+  flight: '✈️', hotel: '🏨', activity: '🎟️', car: '🚗', insurance: '🛡️',
 };
 
 export default function TripDetailScreen() {
@@ -753,7 +753,7 @@ export default function TripDetailScreen() {
           showOnDay = d.getFullYear() === date.getFullYear() && d.getMonth() === date.getMonth() && d.getDate() === date.getDate();
         } else if (item.type === 'hotel' && i === 0) {
           showOnDay = true;
-        } else if (item.type === 'transport' && i === 0) {
+        } else if (item.type === 'car' && i === 0) {
           showOnDay = true;
         }
         if (!showOnDay) continue;

@@ -1,5 +1,9 @@
 import { useMemo, useState, useEffect, useRef, useCallback } from 'react';
-import { View, Text, ScrollView, ActivityIndicator, StyleSheet, Modal, TextInput, Pressable } from 'react-native';
+import { View, Text, ScrollView, ActivityIndicator, StyleSheet, Modal, TextInput, Pressable, LayoutAnimation, Platform, UIManager } from 'react-native';
+
+if (Platform.OS === 'android') {
+  UIManager.setLayoutAnimationEnabledExperimental?.(true);
+}
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from 'expo-router';
@@ -12,16 +16,20 @@ import { SearchBar } from '../../src/components/search/SearchBar';
 import { ResultSection } from '../../src/components/search/ResultSection';
 import { FlightCard } from '../../src/components/search/FlightCard';
 import { HotelCard } from '../../src/components/search/HotelCard';
-import { TransportCard } from '../../src/components/search/TransportCard';
+import { CarCard } from '../../src/components/search/CarCard';
 import { ActivityCard } from '../../src/components/search/ActivityCard';
 import { InsuranceCard } from '../../src/components/search/InsuranceCard';
 import { VisaCard } from '../../src/components/search/VisaCard';
 import { CartBar } from '../../src/components/search/CartBar';
+import { ShowMoreButton, ShowLessButton } from '../../src/components/search/ShowMoreButton';
 
 import { getMockResults, DEFAULT_SEARCH_PARAMS } from '../../src/data/mockSearch';
 import { searchFlights, DuffelError } from '../../src/services/duffel';
 import { searchHotels, BookingError } from '../../src/services/booking';
-import type { SearchParams, SearchResults, CartItem, FlightOffer, HotelOffer } from '../../src/types/booking';
+import { searchActivities } from '../../src/services/activities';
+import { generateMockCars } from '../../src/services/cars';
+import { getVisaInfo } from '../../src/services/visa';
+import type { SearchParams, SearchResults, CartItem } from '../../src/types/booking';
 import type { Trip } from '../../src/types/trip';
 import { Colors, FontFamily, FontSize, Spacing, Radius } from '../../src/constants/theme';
 
@@ -171,6 +179,7 @@ export default function SearchScreen() {
   const [isSearching, setIsSearching] = useState(false);
   const [isFlightsLoading, setIsFlightsLoading] = useState(false);
   const [isHotelsLoading, setIsHotelsLoading] = useState(false);
+  const [isActivitiesLoading, setIsActivitiesLoading] = useState(false);
   const [hotelCacheAgeMs, setHotelCacheAgeMs] = useState<number | null>(null);
   const [results, setResults] = useState<SearchResults | null>(null);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -185,10 +194,23 @@ export default function SearchScreen() {
     };
   }, []);
 
+  // Show-more state per section (default: 3 visible)
+  const SECTION_DEFAULT = 3;
+  const [showAllFlights, setShowAllFlights] = useState(false);
+  const [showAllHotels, setShowAllHotels] = useState(false);
+  const [showAllCars, setShowAllCars] = useState(false);
+  const [showAllActivities, setShowAllActivities] = useState(false);
+  const [showAllInsurance, setShowAllInsurance] = useState(false);
+
+  const toggleShowMore = (setter: (v: boolean) => void, next: boolean) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setter(next);
+  };
+
   // Selections
   const [selectedFlight, setSelectedFlight] = useState<string | null>(null);
   const [selectedHotel, setSelectedHotel] = useState<string | null>(null);
-  const [selectedTransports, setSelectedTransports] = useState<string[]>([]);
+  const [selectedCar, setSelectedCar] = useState<string | null>(null);
   const [selectedActivities, setSelectedActivities] = useState<string[]>([]);
   const [selectedInsurance, setSelectedInsurance] = useState<string | null>(null);
 
@@ -217,7 +239,7 @@ export default function SearchScreen() {
       for (const { type, offerId } of restore.itemIds) {
         if (type === 'flight') setSelectedFlight(offerId);
         else if (type === 'hotel') setSelectedHotel(offerId);
-        else if (type === 'transport') setSelectedTransports((prev) => [...prev, offerId]);
+        else if (type === 'car') setSelectedCar(offerId);
         else if (type === 'activity') setSelectedActivities((prev) => [...prev, offerId]);
         else if (type === 'insurance') setSelectedInsurance(offerId);
       }
@@ -228,21 +250,30 @@ export default function SearchScreen() {
     setIsSearching(true);
     setIsFlightsLoading(true);
     setIsHotelsLoading(true);
+    setIsActivitiesLoading(true);
     setHotelCacheAgeMs(null);
     setResults(null);
     setSelectedFlight(null);
     setSelectedHotel(null);
-    setSelectedTransports([]);
+    setSelectedCar(null);
     setSelectedActivities([]);
     setSelectedInsurance(null);
+    setShowAllFlights(false);
+    setShowAllHotels(false);
+    setShowAllCars(false);
+    setShowAllActivities(false);
+    setShowAllInsurance(false);
 
-    // Load mock base (transports, activities, insurance, visa) immediately
+    // Generate cars + visa immediately (sync/near-sync)
     const mockBase = getMockResults(params);
-    setResults({ ...mockBase, flights: [], hotels: [] });
+    const cars = generateMockCars(params, onboardingData);
+    const visa = getVisaInfo(params.destination, onboardingData.nationality || 'IT');
+
+    setResults({ ...mockBase, flights: [], hotels: [], cars, activities: [], visa });
     setHasSearched(true);
     setIsSearching(false);
 
-    // Fetch flights and hotels independently — update results as each resolves
+    // Fetch flights, hotels, activities independently
     const flightPromise = searchFlights(params, onboardingData)
       .then((flights) => {
         setIsFlightsLoading(false);
@@ -270,11 +301,19 @@ export default function SearchScreen() {
         setResults((prev) => prev ? { ...prev, hotels: mockBase.hotels } : prev);
       });
 
-    await Promise.allSettled([flightPromise, hotelPromise]);
-  };
+    const activitiesPromise = searchActivities(params, onboardingData)
+      .then((activities) => {
+        setIsActivitiesLoading(false);
+        setResults((prev) => prev ? { ...prev, activities } : prev);
+      })
+      .catch((err) => {
+        setIsActivitiesLoading(false);
+        if (__DEV__) console.warn('[search] Activities error:', err);
+        setResults((prev) => prev ? { ...prev, activities: mockBase.activities } : prev);
+      });
 
-  const toggleTransport = (id: string) =>
-    setSelectedTransports((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
+    await Promise.allSettled([flightPromise, hotelPromise, activitiesPromise]);
+  };
 
   const toggleActivity = (id: string) =>
     setSelectedActivities((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
@@ -290,10 +329,10 @@ export default function SearchScreen() {
       const h = results.hotels.find((x) => x.id === selectedHotel);
       if (h) items.push({ type: 'hotel', offerId: h.id, name: h.name, price: h.totalPrice, currency: h.currency });
     }
-    selectedTransports.forEach((tid) => {
-      const t = results.transports.find((x) => x.id === tid);
-      if (t) items.push({ type: 'transport', offerId: t.id, name: t.name, price: t.totalPrice, currency: t.currency });
-    });
+    if (selectedCar) {
+      const c = results.cars.find((x) => x.id === selectedCar);
+      if (c) items.push({ type: 'car', offerId: c.id, name: `${c.company} · ${c.name}`, price: c.totalPrice, currency: c.currency });
+    }
     selectedActivities.forEach((aid) => {
       const a = results.activities.find((x) => x.id === aid);
       if (a) items.push({ type: 'activity', offerId: a.id, name: a.name, price: a.price * params.travelers, currency: a.currency });
@@ -303,7 +342,7 @@ export default function SearchScreen() {
       if (ins) items.push({ type: 'insurance', offerId: ins.id, name: ins.name, price: ins.price * params.travelers, currency: ins.currency });
     }
     return items;
-  }, [results, selectedFlight, selectedHotel, selectedTransports, selectedActivities, selectedInsurance, params.travelers]);
+  }, [results, selectedFlight, selectedHotel, selectedCar, selectedActivities, selectedInsurance, params.travelers]);
 
   const totalPrice = useMemo(() => cartItems.reduce((sum, item) => sum + item.price, 0), [cartItems]);
 
@@ -363,7 +402,7 @@ export default function SearchScreen() {
         keyboardShouldPersistTaps="handled"
       >
         <Text style={styles.heading}>Cerca</Text>
-        <SearchBar params={params} onChange={setParams} onSearch={handleSearch} isLoading={isSearching || isFlightsLoading || isHotelsLoading} />
+        <SearchBar params={params} onChange={setParams} onSearch={handleSearch} isLoading={isSearching || isFlightsLoading || isHotelsLoading || isActivitiesLoading} />
 
         {isSearching && (
           <View style={styles.loadingState}>
@@ -391,77 +430,182 @@ export default function SearchScreen() {
               </Text>
             </View>
 
-            {/* ✈️ Voli — real Duffel or skeleton */}
-            <ResultSection title="✈️ Voli" count={isFlightsLoading ? 0 : results.flights.length}>
-              {isFlightsLoading ? (
-                <>
-                  <FlightSkeleton />
-                  <FlightSkeleton />
-                  <FlightSkeleton />
-                </>
-              ) : results.flights.length === 0 ? (
-                <View style={styles.flightEmpty}>
-                  <Text style={styles.flightEmptyText}>Nessun volo trovato per queste date</Text>
-                </View>
-              ) : (
-                <>
-                  {results.flights.map((f) => (
-                    <FlightCard key={f.id} flight={f} selected={selectedFlight === f.id} onSelect={() => setSelectedFlight(f.id === selectedFlight ? null : f.id)} />
+            {/* ✈️ Voli */}
+            {(() => {
+              const total = results.flights.length;
+              const visible = showAllFlights ? total : Math.min(SECTION_DEFAULT, total);
+              const slice = results.flights.slice(0, visible);
+              return (
+                <ResultSection
+                  title="✈️ Voli"
+                  totalCount={isFlightsLoading ? 0 : total}
+                  visibleCount={isFlightsLoading ? undefined : visible}
+                >
+                  {isFlightsLoading ? (
+                    <><FlightSkeleton /><FlightSkeleton /><FlightSkeleton /></>
+                  ) : total === 0 ? (
+                    <View style={styles.emptyRow}>
+                      <Text style={styles.emptyRowText}>Nessun volo trovato per queste date</Text>
+                    </View>
+                  ) : (
+                    <>
+                      {slice.map((f) => (
+                        <FlightCard key={f.id} flight={f} selected={selectedFlight === f.id} onSelect={() => setSelectedFlight(f.id === selectedFlight ? null : f.id)} />
+                      ))}
+                      {!showAllFlights && total > SECTION_DEFAULT && (
+                        <ShowMoreButton hiddenCount={total - SECTION_DEFAULT} onPress={() => toggleShowMore(setShowAllFlights, true)} />
+                      )}
+                      {showAllFlights && total > SECTION_DEFAULT && (
+                        <ShowLessButton onPress={() => toggleShowMore(setShowAllFlights, false)} />
+                      )}
+                      <View style={styles.poweredByRow}>
+                        <Text style={styles.poweredBy}>Voli in tempo reale · Powered by Duffel</Text>
+                      </View>
+                    </>
+                  )}
+                </ResultSection>
+              );
+            })()}
+
+            {/* 🏨 Hotel */}
+            {(() => {
+              const total = results.hotels.length;
+              const visible = showAllHotels ? total : Math.min(SECTION_DEFAULT, total);
+              const slice = results.hotels.slice(0, visible);
+              return (
+                <ResultSection
+                  title="🏨 Hotel"
+                  totalCount={isHotelsLoading ? 0 : total}
+                  visibleCount={isHotelsLoading ? undefined : visible}
+                >
+                  {isHotelsLoading ? (
+                    <><HotelSkeleton /><HotelSkeleton /></>
+                  ) : total === 0 ? (
+                    <View style={styles.emptyRow}>
+                      <Text style={styles.emptyRowText}>Nessun hotel trovato per queste date</Text>
+                    </View>
+                  ) : (
+                    <>
+                      {slice.map((h) => (
+                        <HotelCard key={h.id} hotel={h} nights={nights} selected={selectedHotel === h.id} onSelect={() => setSelectedHotel(h.id === selectedHotel ? null : h.id)} />
+                      ))}
+                      {!showAllHotels && total > SECTION_DEFAULT && (
+                        <ShowMoreButton hiddenCount={total - SECTION_DEFAULT} onPress={() => toggleShowMore(setShowAllHotels, true)} />
+                      )}
+                      {showAllHotels && total > SECTION_DEFAULT && (
+                        <ShowLessButton onPress={() => toggleShowMore(setShowAllHotels, false)} />
+                      )}
+                      <View style={styles.poweredByRow}>
+                        <Text style={styles.poweredBy}>
+                          {hotelCacheAgeMs != null ? `Aggiornato ${Math.round(hotelCacheAgeMs / 60000)} min fa · ` : ''}
+                          Powered by Booking.com
+                        </Text>
+                      </View>
+                    </>
+                  )}
+                </ResultSection>
+              );
+            })()}
+
+            {/* 🚗 Auto */}
+            {(() => {
+              const total = results.cars.length;
+              const visible = showAllCars ? total : Math.min(SECTION_DEFAULT, total);
+              const slice = results.cars.slice(0, visible);
+              return (
+                <ResultSection
+                  title="🚗 Auto"
+                  totalCount={total}
+                  visibleCount={visible}
+                >
+                  {slice.map((c) => (
+                    <CarCard key={c.id} car={c} selected={selectedCar === c.id} onSelect={() => setSelectedCar(c.id === selectedCar ? null : c.id)} />
                   ))}
-                  <View style={styles.poweredByRow}>
-                    <Text style={styles.poweredBy}>Voli in tempo reale · Powered by Duffel</Text>
-                  </View>
-                </>
-              )}
-            </ResultSection>
+                  {!showAllCars && total > SECTION_DEFAULT && (
+                    <ShowMoreButton hiddenCount={total - SECTION_DEFAULT} onPress={() => toggleShowMore(setShowAllCars, true)} />
+                  )}
+                  {showAllCars && total > SECTION_DEFAULT && (
+                    <ShowLessButton onPress={() => toggleShowMore(setShowAllCars, false)} />
+                  )}
+                </ResultSection>
+              );
+            })()}
 
-            <ResultSection title="🏨 Hotel" count={isHotelsLoading ? 0 : results.hotels.length}>
-              {isHotelsLoading ? (
-                <>
-                  <HotelSkeleton />
-                  <HotelSkeleton />
-                </>
-              ) : results.hotels.length === 0 ? (
-                <View style={styles.flightEmpty}>
-                  <Text style={styles.flightEmptyText}>Nessun hotel trovato per queste date</Text>
-                </View>
-              ) : (
-                <>
-                  {results.hotels.map((h) => (
-                    <HotelCard key={h.id} hotel={h} nights={nights} selected={selectedHotel === h.id} onSelect={() => setSelectedHotel(h.id === selectedHotel ? null : h.id)} />
+            {/* 🎯 Attività */}
+            {(() => {
+              const total = results.activities.length;
+              const visible = showAllActivities ? total : Math.min(SECTION_DEFAULT, total);
+              const slice = results.activities.slice(0, visible);
+              return (
+                <ResultSection
+                  title="🎯 Attività"
+                  totalCount={isActivitiesLoading ? 0 : total}
+                  visibleCount={isActivitiesLoading ? undefined : visible}
+                >
+                  {isActivitiesLoading ? (
+                    <>
+                      <View style={[skStyles.card, { padding: 0 }]}>
+                        <View style={[skStyles.photoBlock, { height: 140 }]} />
+                        <View style={{ padding: Spacing.md, gap: Spacing.sm }}>
+                          <View style={[skStyles.bar, { width: '70%', height: 14 }]} />
+                          <View style={[skStyles.bar, { width: '40%', height: 11 }]} />
+                        </View>
+                      </View>
+                      <View style={[skStyles.card, { padding: 0 }]}>
+                        <View style={[skStyles.photoBlock, { height: 140 }]} />
+                        <View style={{ padding: Spacing.md, gap: Spacing.sm }}>
+                          <View style={[skStyles.bar, { width: '60%', height: 14 }]} />
+                          <View style={[skStyles.bar, { width: '35%', height: 11 }]} />
+                        </View>
+                      </View>
+                    </>
+                  ) : total === 0 ? (
+                    <View style={styles.emptyRow}>
+                      <Text style={styles.emptyRowText}>Nessuna attività trovata</Text>
+                    </View>
+                  ) : (
+                    <>
+                      {slice.map((a) => (
+                        <ActivityCard key={a.id} activity={a} selected={selectedActivities.includes(a.id)} onSelect={() => toggleActivity(a.id)} />
+                      ))}
+                      {!showAllActivities && total > SECTION_DEFAULT && (
+                        <ShowMoreButton hiddenCount={total - SECTION_DEFAULT} onPress={() => toggleShowMore(setShowAllActivities, true)} />
+                      )}
+                      {showAllActivities && total > SECTION_DEFAULT && (
+                        <ShowLessButton onPress={() => toggleShowMore(setShowAllActivities, false)} />
+                      )}
+                    </>
+                  )}
+                </ResultSection>
+              );
+            })()}
+
+            {/* 🏥 Assicurazione */}
+            {(() => {
+              const total = results.insurance.length;
+              const visible = showAllInsurance ? total : Math.min(SECTION_DEFAULT, total);
+              const slice = results.insurance.slice(0, visible);
+              return (
+                <ResultSection
+                  title="🏥 Assicurazione"
+                  totalCount={total}
+                  visibleCount={visible}
+                >
+                  {slice.map((ins) => (
+                    <InsuranceCard key={ins.id} plan={ins} selected={selectedInsurance === ins.id} onSelect={() => setSelectedInsurance(ins.id === selectedInsurance ? null : ins.id)} />
                   ))}
-                  <View style={styles.poweredByRow}>
-                    <Text style={styles.poweredBy}>
-                      {hotelCacheAgeMs != null
-                        ? `Aggiornato ${Math.round(hotelCacheAgeMs / 60000)} min fa · `
-                        : ''}
-                      Powered by Booking.com
-                    </Text>
-                  </View>
-                </>
-              )}
-            </ResultSection>
-
-            <ResultSection title="🚗 Trasporti" count={results.transports.length}>
-              {results.transports.map((t) => (
-                <TransportCard key={t.id} transport={t} selected={selectedTransports.includes(t.id)} onSelect={() => toggleTransport(t.id)} />
-              ))}
-            </ResultSection>
-
-            <ResultSection title="🎯 Attività" count={results.activities.length}>
-              {results.activities.map((a) => (
-                <ActivityCard key={a.id} activity={a} selected={selectedActivities.includes(a.id)} onSelect={() => toggleActivity(a.id)} />
-              ))}
-            </ResultSection>
-
-            <ResultSection title="🏥 Assicurazione" count={results.insurance.length}>
-              {results.insurance.map((ins) => (
-                <InsuranceCard key={ins.id} plan={ins} selected={selectedInsurance === ins.id} onSelect={() => setSelectedInsurance(ins.id === selectedInsurance ? null : ins.id)} />
-              ))}
-            </ResultSection>
+                  {!showAllInsurance && total > SECTION_DEFAULT && (
+                    <ShowMoreButton hiddenCount={total - SECTION_DEFAULT} onPress={() => toggleShowMore(setShowAllInsurance, true)} />
+                  )}
+                  {showAllInsurance && total > SECTION_DEFAULT && (
+                    <ShowLessButton onPress={() => toggleShowMore(setShowAllInsurance, false)} />
+                  )}
+                </ResultSection>
+              );
+            })()}
 
             {results.visa && (
-              <ResultSection title="🛂 Visto" count={1}>
+              <ResultSection title="🛂 Visto" totalCount={1}>
                 <VisaCard visa={results.visa} />
               </ResultSection>
             )}
@@ -516,8 +660,8 @@ const styles = StyleSheet.create({
   resultsHeader: { paddingHorizontal: Spacing.lg, paddingBottom: Spacing.lg, gap: 3 },
   resultsTitle: { fontFamily: FontFamily.bodySemiBold, fontSize: FontSize.lg, color: Colors.text.primary },
   resultsSubtitle: { fontFamily: FontFamily.body, fontSize: FontSize.sm, color: Colors.text.muted },
-  flightEmpty: { paddingVertical: Spacing.lg, alignItems: 'center' },
-  flightEmptyText: { fontFamily: FontFamily.body, fontSize: FontSize.sm, color: Colors.text.muted },
+  emptyRow: { paddingVertical: Spacing.lg, alignItems: 'center' },
+  emptyRowText: { fontFamily: FontFamily.body, fontSize: FontSize.sm, color: Colors.text.muted },
   poweredByRow: {
     alignItems: 'center',
     paddingVertical: Spacing.xs,
