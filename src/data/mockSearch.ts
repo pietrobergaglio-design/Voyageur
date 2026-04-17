@@ -106,6 +106,7 @@ export const mockHotels: HotelOffer[] = [
     provider: 'expedia',
     name: 'Park Hyatt Tokyo',
     zone: 'Shinjuku',
+    propertyType: 'resort',
     stars: 5,
     rating: 9.2,
     reviewCount: 4200,
@@ -124,6 +125,7 @@ export const mockHotels: HotelOffer[] = [
     provider: 'expedia',
     name: 'Aman Tokyo',
     zone: 'Otemachi',
+    propertyType: 'boutique',
     stars: 5,
     rating: 9.6,
     reviewCount: 890,
@@ -142,6 +144,7 @@ export const mockHotels: HotelOffer[] = [
     provider: 'expedia',
     name: 'Apartment Shibuya Modern',
     zone: 'Shibuya',
+    propertyType: 'apartment',
     stars: 4,
     rating: 8.1,
     reviewCount: 312,
@@ -218,6 +221,7 @@ export const mockActivities: ActivityOffer[] = [
     currency: 'EUR',
     matchScore: 97,
     tags: ['best_match'],
+    categories: ['art', 'cultural'],
     highlights: ['Prenotazione prioritaria', 'Guida in italiano', 'Foto incluse'],
   },
   {
@@ -231,6 +235,7 @@ export const mockActivities: ActivityOffer[] = [
     currency: 'EUR',
     matchScore: 91,
     tags: ['best_match'],
+    categories: ['food', 'tours'],
     highlights: ['Guida madrelingua', 'Degustazioni incluse', 'Piccolo gruppo'],
   },
   {
@@ -244,6 +249,7 @@ export const mockActivities: ActivityOffer[] = [
     currency: 'EUR',
     matchScore: 88,
     tags: [],
+    categories: ['outdoor', 'nature', 'sightseeing'],
     highlights: ['Pullman A/R', 'Ropeway inclusa', 'Onsen opzionale'],
   },
   {
@@ -257,6 +263,7 @@ export const mockActivities: ActivityOffer[] = [
     currency: 'EUR',
     matchScore: 82,
     tags: [],
+    categories: ['cultural', 'sightseeing'],
     highlights: ['Posti ringside', 'Spiegazione in italiano', 'Meet & greet'],
   },
   {
@@ -270,6 +277,7 @@ export const mockActivities: ActivityOffer[] = [
     currency: 'EUR',
     matchScore: 93,
     tags: ['best_match'],
+    categories: ['food', 'tours', 'walking tour'],
     highlights: ['10+ assaggi', 'Guida locale', 'Senza allergeni su richiesta'],
   },
 ];

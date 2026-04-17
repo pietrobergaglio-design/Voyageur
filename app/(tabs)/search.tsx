@@ -180,6 +180,7 @@ export default function SearchScreen() {
   const [isFlightsLoading, setIsFlightsLoading] = useState(false);
   const [isHotelsLoading, setIsHotelsLoading] = useState(false);
   const [isActivitiesLoading, setIsActivitiesLoading] = useState(false);
+  const [activitiesUnavailable, setActivitiesUnavailable] = useState(false);
   const [hotelCacheAgeMs, setHotelCacheAgeMs] = useState<number | null>(null);
   const [results, setResults] = useState<SearchResults | null>(null);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -253,6 +254,7 @@ export default function SearchScreen() {
     setIsFlightsLoading(true);
     setIsHotelsLoading(true);
     setIsActivitiesLoading(true);
+    setActivitiesUnavailable(false);
     setHotelCacheAgeMs(null);
     setResults(null);
     setSelectedFlight(null);
@@ -310,8 +312,9 @@ export default function SearchScreen() {
       })
       .catch((err) => {
         setIsActivitiesLoading(false);
-        if (__DEV__) console.warn('[search] Activities error:', err);
-        setResults((prev) => prev ? { ...prev, activities: mockBase.activities } : prev);
+        setActivitiesUnavailable(true);
+        if (__DEV__) console.warn('[search] Activities error:', err?.message ?? err);
+        setResults((prev) => prev ? { ...prev, activities: [] } : prev);
       });
 
     await Promise.allSettled([flightPromise, hotelPromise, activitiesPromise]);
@@ -561,6 +564,11 @@ export default function SearchScreen() {
                         </View>
                       </View>
                     </>
+                  ) : activitiesUnavailable ? (
+                    <View style={styles.emptyRow}>
+                      <Text style={styles.emptyRowText}>🔧 Attività temporaneamente non disponibili</Text>
+                      <Text style={[styles.emptyRowText, { fontSize: 12, marginTop: 4, opacity: 0.6 }]}>Quota API esaurita — riprova domani</Text>
+                    </View>
                   ) : total === 0 ? (
                     <View style={styles.emptyRow}>
                       <Text style={styles.emptyRowText}>Nessuna attività trovata</Text>

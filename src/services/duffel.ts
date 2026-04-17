@@ -1,7 +1,7 @@
 // TODO: spostare su backend proxy in produzione per non esporre API key
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import type { FlightOffer, FlightSegment, BaggageAllowance, RefundPolicy, MatchTag, Currency, SearchParams } from '../types/booking';
+import type { FlightOffer, FlightSegment, BaggageAllowance, RefundPolicy, MatchTag, Currency, SearchParams, ScoreBreakdown } from '../types/booking';
 import type { OnboardingData } from '../stores/useAppStore';
 
 const DUFFEL_BASE = 'https://api.duffel.com';
@@ -9,6 +9,7 @@ const DUFFEL_VERSION = 'v2';
 const TIMEOUT_MS = 20_000;
 const CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
 const CACHE_PREFIX = 'duffel_cache_';
+const DEBUG_MATCH = __DEV__ && true;
 
 // ─── IATA lookup ──────────────────────────────────────────────────────────────
 
@@ -63,12 +64,10 @@ export async function resolveCityToIATA(cityName: string): Promise<string> {
   const key = cityName.toLowerCase().trim();
   if (CITY_TO_IATA[key]) return CITY_TO_IATA[key];
 
-  // Try prefix match (e.g. "Tokyo, Japan" → "tokyo")
   for (const [city, code] of Object.entries(CITY_TO_IATA)) {
     if (key.startsWith(city) || city.startsWith(key)) return code;
   }
 
-  // Fallback: Duffel places API
   const apiKey = process.env.EXPO_PUBLIC_DUFFEL_API_KEY ?? '';
   if (!apiKey) return '';
 
@@ -99,21 +98,19 @@ function duffelHeaders(apiKey: string): Record<string, string> {
 }
 
 function parseDurationToMinutes(iso: string): number {
-  // ISO 8601 duration: PT13H20M, PT1H5M30S, P1DT2H
   const days = parseInt(iso.match(/(\d+)D/)?.[1] ?? '0', 10);
   const hours = parseInt(iso.match(/(\d+)H/)?.[1] ?? '0', 10);
   const minutes = parseInt(iso.match(/(\d+)M/)?.[1] ?? '0', 10);
   return days * 1440 + hours * 60 + minutes;
 }
 
-function formatDurationISO(iso: string): string {
-  const mins = parseDurationToMinutes(iso);
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  return m > 0 ? `${h}h ${m}m` : `${h}h`;
-}
+const PREMIUM_AIRLINES = new Set([
+  'Singapore Airlines', 'ANA', 'Japan Airlines', 'Cathay Pacific',
+  'Emirates', 'Qatar Airways', 'Swiss', 'Austrian', 'Finnair',
+  'Lufthansa', 'British Airways', 'Air France', 'KLM',
+]);
 
-const PREMIUM_AIRLINES = new Set(['Singapore Airlines', 'ANA', 'Japan Airlines', 'Cathay Pacific', 'Emirates', 'Qatar Airways', 'Swiss', 'Austrian', 'Finnair']);
+const LOW_COST_IATA = new Set(['FR', 'U2', 'W6', 'B6', 'VY', 'DY', 'PC', 'HV']);
 
 function mapCabin(fareBrandName: string | null | undefined): FlightOffer['cabin'] {
   const name = (fareBrandName ?? '').toLowerCase();
@@ -130,51 +127,97 @@ function mapRefundPolicy(conditions: DuffelConditions | null | undefined): Refun
   return penalty === 0 ? 'flexible' : 'moderate';
 }
 
+// ─── Score (base score — duration bonus applied separately) ───────────────────
+
 function calcMatchScore(
   offer: DuffelOffer,
   profile: OnboardingData,
   price: number,
   stops: number,
-): number {
-  let score = 60;
+): { score: number; breakdown: ScoreBreakdown } {
+  const breakdown: ScoreBreakdown = {};
 
-  // Direct flight bonus for higher comfort preference
-  if (stops === 0 && profile.pace >= 60) score += 10;
+  // Stops: biggest quality signal
+  let stopsPts = 0;
+  if (stops === 0) stopsPts = 20;
+  else if (stops === 1) stopsPts = 5;
+  else stopsPts = -10;
+  breakdown.stops = stopsPts;
 
-  // Budget fit
-  if (profile.budget <= 40 && price < 700) score += 15;
-  else if (profile.budget >= 60 && price > 800) score += 10;
-  else if (price >= 400 && price <= 900) score += 15;
+  // Budget fit (price relative to budget cursor)
+  let budgetPts = 0;
+  if (profile.budget <= 40 && price < 700) budgetPts = 15;
+  else if (profile.budget >= 60 && price > 800) budgetPts = 10;
+  else if (price >= 400 && price <= 900) budgetPts = 15;
+  else if (price < 300) budgetPts = 8; // very cheap is OK for most
+  breakdown.budget = budgetPts;
 
-  // Reasonable departure time (not 00:00–05:00)
+  // Departure time
   const depHour = new Date(offer.slices[0]?.segments[0]?.departing_at ?? '').getHours();
-  if (!isNaN(depHour) && (depHour >= 6 || depHour === 0)) score += 5;
+  let timePts = 0;
+  if (!isNaN(depHour)) {
+    if (depHour >= 0 && depHour < 6) {
+      timePts = -15; // Night departure — discomfort for most travelers
+    } else if (depHour >= 6 && depHour < 12) {
+      timePts = profile.pace >= 70 ? 10 : 3; // Morning: great for fast travelers
+    } else {
+      timePts = 5; // Afternoon or evening
+    }
+  }
+  breakdown.departure = timePts;
 
-  // Premium airline bonus
-  if (PREMIUM_AIRLINES.has(offer.owner.name)) score += 5;
+  // Airline preference by budget cursor
+  let airlinePts = 0;
+  if (profile.budget > 70 && PREMIUM_AIRLINES.has(offer.owner.name)) airlinePts = 8;
+  if (profile.budget < 30 && LOW_COST_IATA.has(offer.owner.iata_code)) airlinePts = 8;
+  breakdown.airline = airlinePts;
 
-  return Math.min(99, score);
+  const base = 20;
+  const total = base + stopsPts + budgetPts + timePts + airlinePts;
+  // Cap at 85 to leave room for the duration bonus (+10)
+  return { score: Math.min(85, total), breakdown };
+}
+
+/** Second pass: add duration-percentile bonus after all offers are normalized. */
+function applyDurationBonus(offers: FlightOffer[]): void {
+  if (offers.length < 2) return;
+
+  const durations = offers.map((o) =>
+    o.totalDurationMinutes ?? o.segments.reduce((s, seg) => s + seg.durationMinutes, 0),
+  );
+  const sorted = [...durations].sort((a, b) => a - b);
+  const p25idx = Math.floor(sorted.length * 0.25);
+  const p50idx = Math.floor(sorted.length * 0.50);
+  const p25 = sorted[p25idx];
+  const p50 = sorted[p50idx];
+
+  offers.forEach((offer) => {
+    const dur = offer.totalDurationMinutes ?? offer.segments.reduce((s, seg) => s + seg.durationMinutes, 0);
+    let bonus = 0;
+    if (dur <= p25) bonus = 10;
+    else if (dur <= p50) bonus = 5;
+    if (bonus > 0) {
+      offer.matchScore = Math.min(95, offer.matchScore + bonus);
+      if (offer.scoreBreakdown) offer.scoreBreakdown.duration = bonus;
+    }
+  });
 }
 
 function assignTags(offers: FlightOffer[]): void {
   if (offers.length === 0) return;
 
-  // Best match: highest score
   const bestMatch = offers.reduce((best, o) => o.matchScore > best.matchScore ? o : best, offers[0]);
   bestMatch.tags.push('best_match');
 
-  // Cheapest
   const cheapest = offers.reduce((c, o) => o.price < c.price ? o : c, offers[0]);
   if (cheapest.id !== bestMatch.id) cheapest.tags.push('cheapest');
 
-  // Fastest: use totalDurationMinutes (includes layover) for accurate comparison
   const totalMins = (o: FlightOffer) => o.totalDurationMinutes ?? o.segments.reduce((s, seg) => s + seg.durationMinutes, 0);
   const fastest = offers.reduce((f, o) => totalMins(o) < totalMins(f) ? o : f, offers[0]);
   if (fastest.id !== bestMatch.id && fastest.id !== cheapest.id) {
     fastest.tags.push('fastest');
   }
 
-  // Premium airlines
   offers.forEach((o) => {
     if (PREMIUM_AIRLINES.has(o.airline) && !o.tags.includes('premium')) {
       o.tags.push('premium');
@@ -182,7 +225,7 @@ function assignTags(offers: FlightOffer[]): void {
   });
 }
 
-// ─── Duffel raw types (minimal) ───────────────────────────────────────────────
+// ─── Duffel raw types ─────────────────────────────────────────────────────────
 
 interface DuffelSegment {
   origin: { iata_code: string };
@@ -240,10 +283,9 @@ function normalizeOffer(offer: DuffelOffer, profile: OnboardingData): FlightOffe
 
   const stops = segs.length - 1;
   const stopoverCities = stops > 0 ? segs.slice(0, -1).map((s) => s.destination.iata_code) : [];
-
   const price = parseFloat(offer.total_amount);
   const refundPolicy = mapRefundPolicy(offer.conditions);
-  const matchScore = calcMatchScore(offer, profile, price, stops);
+  const { score: matchScore, breakdown } = calcMatchScore(offer, profile, price, stops);
 
   const passengerBaggages = first.passengers?.[0]?.baggages ?? [];
   const baggage: BaggageAllowance[] = passengerBaggages.map((b) => ({
@@ -252,8 +294,6 @@ function normalizeOffer(offer: DuffelOffer, profile: OnboardingData): FlightOffe
   }));
   const baggageIncluded = baggage.some((b) => b.type === 'checked' && b.quantity > 0);
 
-  // Use slice-level duration (includes layover time for connecting flights).
-  // Summing segment durations only gives airborne time and is wrong for multi-stop.
   const totalDurationMinutes = parseDurationToMinutes(outbound.duration);
 
   return {
@@ -270,6 +310,7 @@ function normalizeOffer(offer: DuffelOffer, profile: OnboardingData): FlightOffe
     currency: offer.total_currency as Currency,
     refundPolicy,
     matchScore,
+    scoreBreakdown: breakdown,
     tags: [],
     cabin: mapCabin(outbound.fare_brand_name),
     baggageIncluded,
@@ -305,14 +346,13 @@ async function readCache(key: string): Promise<FlightOffer[] | null> {
 
 async function writeCache(key: string, offers: FlightOffer[]): Promise<void> {
   try {
-    const payload: CachedFlights = { timestamp: Date.now(), offers };
-    await AsyncStorage.setItem(key, JSON.stringify(payload));
+    await AsyncStorage.setItem(key, JSON.stringify({ timestamp: Date.now(), offers }));
   } catch {
     // cache write failure is non-fatal
   }
 }
 
-// ─── Main search function ─────────────────────────────────────────────────────
+// ─── Main search ──────────────────────────────────────────────────────────────
 
 export class DuffelError extends Error {
   constructor(
@@ -358,7 +398,6 @@ export async function searchFlights(
   const slices: Array<{ origin: string; destination: string; departure_date: string }> = [
     { origin: originCode, destination: destCode, departure_date: depDate },
   ];
-  // Add return slice only if different date (round-trip)
   if (retDate !== depDate) {
     slices.push({ origin: destCode, destination: originCode, departure_date: retDate });
   }
@@ -370,7 +409,6 @@ export async function searchFlights(
 
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      // Step 1: create offer request
       const createResp = await fetchWithTimeout(
         `${DUFFEL_BASE}/air/offer_requests`,
         {
@@ -392,7 +430,6 @@ export async function searchFlights(
       const createData = await createResp.json() as { data: { id: string } };
       offerRequestId = createData.data.id;
 
-      // Step 2: fetch offers
       const offersResp = await fetchWithTimeout(
         `${DUFFEL_BASE}/air/offers?offer_request_id=${offerRequestId}&limit=20&sort=total_amount`,
         { method: 'GET', headers: duffelHeaders(apiKey) },
@@ -411,18 +448,45 @@ export async function searchFlights(
       if (rawOffers.length === 0) return [];
 
       const normalized = rawOffers.map((o) => normalizeOffer(o, profile));
-      // Sort by match score desc, then price asc
-      normalized.sort((a, b) => b.matchScore - a.matchScore || a.price - b.price);
-      assignTags(normalized);
 
-      await writeCache(cacheKey, normalized);
-      if (__DEV__) console.log(`[duffel] ${normalized.length} offers fetched`);
-      return normalized;
+      // Dedup by fingerprint (same flight, different offer IDs from Duffel)
+      const seenFp = new Set<string>();
+      const deduped = normalized.filter((o) => {
+        const first = o.segments[0];
+        const last = o.segments[o.segments.length - 1];
+        const fp = `${o.airlineCode}_${first.departureAt}_${last.arrivalAt}_${o.price}`;
+        if (seenFp.has(fp)) return false;
+        seenFp.add(fp);
+        return true;
+      });
+
+      // Second pass: add duration-percentile bonus
+      applyDurationBonus(deduped);
+
+      // Filter out poor matches
+      const filtered = deduped.filter((o) => o.matchScore >= 10);
+      const finalOffers = filtered.length >= 3 ? filtered : deduped;
+
+      finalOffers.sort((a, b) => b.matchScore - a.matchScore || a.price - b.price);
+      assignTags(finalOffers);
+
+      if (DEBUG_MATCH) {
+        finalOffers.forEach((o) => {
+          const bd = o.scoreBreakdown ?? {};
+          console.log(
+            `[FLIGHT] ${o.airline} ${o.stops === 0 ? 'direct' : `${o.stops}s`} €${o.price} | score: ${o.matchScore} | ${JSON.stringify(bd)}`,
+          );
+        });
+      }
+
+      await writeCache(cacheKey, finalOffers);
+      if (__DEV__) console.log(`[duffel] ${finalOffers.length} offers (${rawOffers.length} raw, ${deduped.length} deduped)`);
+      return finalOffers;
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
       if (__DEV__) console.warn(`[duffel] attempt ${attempt + 1} failed:`, lastError.message);
       if (err instanceof DuffelError && (err.statusCode ?? 0) >= 400 && (err.statusCode ?? 0) < 500) {
-        throw err; // don't retry on 4xx
+        throw err;
       }
     }
   }

@@ -340,7 +340,7 @@ export function PlaceAutocomplete({
               nestedScrollEnabled
               decelerationRate="normal"
             >
-              {listData.map((item) => renderRow(item))}
+              {listData.map((item) => <React.Fragment key={item.key}>{renderRow(item)}</React.Fragment>)}
             </ScrollView>
             {hasOverflow && (
               <LinearGradient

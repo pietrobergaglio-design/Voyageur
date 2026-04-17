@@ -50,6 +50,14 @@ const badgeStyles = StyleSheet.create({
   label: { fontFamily: FontFamily.bodySemiBold, fontSize: FontSize.xs },
 });
 
+// ─── Shared helpers ───────────────────────────────────────────────────────────
+
+export function getMatchScoreColor(score: number): string {
+  if (score >= 70) return Colors.teal;
+  if (score >= 40) return '#D97706'; // amber
+  return '#DC2626'; // red
+}
+
 // ─── FlightCard ───────────────────────────────────────────────────────────────
 
 function formatTime(iso: string) {
@@ -133,7 +141,7 @@ export function FlightCard({ flight, selected, onSelect }: Props) {
           {flight.baggageIncluded ? '✅ Bagaglio incluso' : '⛔ Bagaglio non incluso'}
         </Text>
         <View style={styles.priceBlock}>
-          <Text style={styles.matchScore}>{flight.matchScore}% match</Text>
+          <Text style={[styles.matchScore, { color: getMatchScoreColor(flight.matchScore) }]}>{flight.matchScore}% match</Text>
           <Text style={styles.price}>
             {flight.price.toLocaleString('it-IT')} {flight.currency}
           </Text>
@@ -254,7 +262,7 @@ const styles = StyleSheet.create({
   matchScore: {
     fontFamily: FontFamily.bodySemiBold,
     fontSize: FontSize.xs,
-    color: Colors.teal,
+    // color applied dynamically via getMatchScoreColor
   },
   price: {
     fontFamily: FontFamily.bodyBold,

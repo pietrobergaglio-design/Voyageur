@@ -1,6 +1,6 @@
 import { View, Text, Image, TouchableOpacity, StyleSheet } from 'react-native';
 import type { HotelOffer } from '../../types/booking';
-import { RefundBadge, MatchTagBadge } from './FlightCard';
+import { RefundBadge, MatchTagBadge, getMatchScoreColor } from './FlightCard';
 import { Colors, FontFamily, FontSize, Radius, Spacing } from '../../constants/theme';
 
 function StarsRow({ count }: { count: number }) {
@@ -92,7 +92,7 @@ export function HotelCard({ hotel, nights, selected, onSelect }: Props) {
               {hotel.totalPrice.toLocaleString('it-IT', { maximumFractionDigits: 0 })} {hotel.currency} · {nights} nott{nights === 1 ? 'e' : 'i'}
             </Text>
           </View>
-          <Text style={styles.matchScore}>{hotel.matchScore}% match</Text>
+          <Text style={[styles.matchScore, { color: getMatchScoreColor(hotel.matchScore) }]}>{hotel.matchScore}% match</Text>
         </View>
       </View>
     </TouchableOpacity>
@@ -222,6 +222,6 @@ const styles = StyleSheet.create({
   matchScore: {
     fontFamily: FontFamily.bodyMedium,
     fontSize: FontSize.xs,
-    color: Colors.teal,
+    // color applied dynamically via getMatchScoreColor
   },
 });

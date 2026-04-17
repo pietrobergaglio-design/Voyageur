@@ -12,6 +12,19 @@ export type MatchTag =
   | 'most_popular'
   | 'high_coverage';
 
+export type PropertyType =
+  | 'hotel'
+  | 'apartment'
+  | 'hostel'
+  | 'guesthouse'
+  | 'resort'
+  | 'boutique'
+  | 'bnb'
+  | 'unknown';
+
+/** Per-component breakdown used by DEBUG_MATCH logging. */
+export type ScoreBreakdown = Record<string, number>;
+
 // ─── Flight ──────────────────────────────────────────────────────────────────
 
 export interface FlightSegment {
@@ -44,6 +57,7 @@ export interface FlightOffer {
   currency: Currency;
   refundPolicy: RefundPolicy;
   matchScore: number;
+  scoreBreakdown?: ScoreBreakdown;
   tags: MatchTag[];
   cabin: 'economy' | 'premium_economy' | 'business' | 'first';
   baggageIncluded: boolean;
@@ -59,6 +73,7 @@ export interface HotelOffer {
   name: string;
   zone: string;
   stars: 0 | 1 | 2 | 3 | 4 | 5;
+  propertyType: PropertyType;
   thumbnailUrl?: string;
   photoUrls?: string[];
   rating?: number;
@@ -71,6 +86,7 @@ export interface HotelOffer {
   currency: Currency;
   refundPolicy: RefundPolicy;
   matchScore: number;
+  scoreBreakdown?: ScoreBreakdown;
   tags: MatchTag[];
   amenities: string[];
   rawHotel?: unknown;
@@ -122,7 +138,9 @@ export interface ActivityOffer {
   thumbnailUrl?: string;
   photoUrls?: string[];
   hasFreeCancellation?: boolean;
+  categories: string[];
   matchScore: number;
+  scoreBreakdown?: ScoreBreakdown;
   tags: MatchTag[];
   highlights: string[];
   rawOffer?: unknown;

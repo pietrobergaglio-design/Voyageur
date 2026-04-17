@@ -1,6 +1,6 @@
 import { View, Text, Image, TouchableOpacity, StyleSheet } from 'react-native';
 import type { ActivityOffer } from '../../types/booking';
-import { MatchTagBadge } from './FlightCard';
+import { MatchTagBadge, getMatchScoreColor } from './FlightCard';
 import { Colors, FontFamily, FontSize, Radius, Spacing } from '../../constants/theme';
 
 interface Props {
@@ -79,7 +79,7 @@ export function ActivityCard({ activity, selected, onSelect }: Props) {
         {activity.tags.length > 0 && (
           <View style={styles.tagRow}>
             {activity.tags.map((t) => <MatchTagBadge key={t} tag={t} />)}
-            <Text style={styles.matchScore}>{activity.matchScore}% match</Text>
+            <Text style={[styles.matchScore, { color: getMatchScoreColor(activity.matchScore) }]}>{activity.matchScore}% match</Text>
           </View>
         )}
 
@@ -221,7 +221,7 @@ const styles = StyleSheet.create({
   matchScore: {
     fontFamily: FontFamily.body,
     fontSize: FontSize.xs,
-    color: Colors.teal,
+    // color applied dynamically via getMatchScoreColor
     marginLeft: 'auto',
   },
   highlights: {

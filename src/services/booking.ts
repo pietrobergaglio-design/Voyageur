@@ -1,12 +1,13 @@
 // TODO: spostare su backend proxy in produzione per non esporre API key
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import type { HotelOffer, RefundPolicy, MatchTag, Currency, SearchParams } from '../types/booking';
+import type { HotelOffer, PropertyType, RefundPolicy, MatchTag, Currency, SearchParams, ScoreBreakdown } from '../types/booking';
 import type { OnboardingData } from '../stores/useAppStore';
 
 const RAPIDAPI_BASE = 'https://booking-com15.p.rapidapi.com/api/v1/hotels';
 const CACHE_PREFIX = 'booking_hotels_';
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+const DEBUG_MATCH = __DEV__ && true;
 
 // ─── Errors ───────────────────────────────────────────────────────────────────
 
@@ -36,10 +37,7 @@ async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: nu
   return Promise.race([fetch(url, options), timeout]);
 }
 
-// Extract district/neighbourhood from Booking accessibilityLabel.
-// The label uses Unicode LTR markers: ‎<text>‬ • ‎<km>‬
 function extractDistrict(label: string, fallback: string): string {
-  // Booking labels use U+200E (LRM) as opener and U+202C (PDF) as closer before U+2022 bullet
   const match = label.match(/[\u202a\u200e]([^\u202c\u200f\u202a\u2022•]+)[\u202c\u200f]\s*[\u2022•]/);
   if (match) return match[1].trim();
   return fallback;
@@ -58,41 +56,212 @@ function clampStars(v: number): HotelOffer['stars'] {
   return v as HotelOffer['stars'];
 }
 
+// ─── Property type detection ──────────────────────────────────────────────────
+
+function parsePropertyType(label: string, stars: number, highlightNames: string[]): PropertyType {
+  const lower = (label + ' ' + highlightNames.join(' ')).toLowerCase();
+
+  if (lower.includes('hostel') || lower.includes('ostello')) return 'hostel';
+  if (lower.includes('resort')) return 'resort';
+  if (lower.includes('boutique')) return 'boutique';
+  if (
+    lower.includes('b&b') ||
+    lower.includes('bed and breakfast') ||
+    lower.includes('bed & breakfast') ||
+    lower.includes('bed&breakfast')
+  ) return 'bnb';
+  if (
+    lower.includes('guesthouse') ||
+    lower.includes('guest house') ||
+    lower.includes('pensione') ||
+    lower.includes('affittacamere')
+  ) return 'guesthouse';
+  if (
+    lower.includes('apartment') ||
+    lower.includes('appartamento') ||
+    lower.includes('studio apartment') ||
+    lower.includes('flat') ||
+    stars === 0
+  ) return 'apartment';
+
+  return 'hotel';
+}
+
+// ─── Amenities parsing ────────────────────────────────────────────────────────
+
+const AMENITY_PATTERNS: Array<[RegExp, string]> = [
+  [/pool|piscina/i, 'pool'],
+  [/\bspa\b/i, 'spa'],
+  [/wellness/i, 'wellness'],
+  [/gym|palestra|fitness/i, 'gym'],
+  [/breakfast|colazione/i, 'breakfast'],
+  [/parking|parcheggio|garage/i, 'parking'],
+  [/\bwifi\b|wi-fi/i, 'wifi'],
+  [/pet.friendly|animali ammessi/i, 'pet-friendly'],
+  [/family.friendly|famiglie|bambini/i, 'family-friendly'],
+  [/kids.club|club bambini/i, 'family-friendly'],
+  [/\bbeach\b|spiaggia/i, 'beach'],
+  [/garden|giardino/i, 'garden'],
+  [/\bbar\b/i, 'bar'],
+  [/restaurant|ristorante/i, 'restaurant'],
+  [/rooftop/i, 'rooftop'],
+  [/romantic|romantico/i, 'romantic'],
+  [/adult.only|solo adulti|adults only/i, 'adult-only'],
+  [/coworking|co.working/i, 'coworking'],
+  [/terrace|terrazza/i, 'terrace'],
+  [/sauna/i, 'sauna'],
+  [/jacuzzi|hot tub/i, 'jacuzzi'],
+  [/airport.shuttle|navetta aeroporto/i, 'airport-shuttle'],
+];
+
+function parseAmenities(label: string, highlightNames: string[]): string[] {
+  const text = label + ' ' + highlightNames.join(' ');
+  const found = new Set<string>();
+  for (const [pattern, amenity] of AMENITY_PATTERNS) {
+    if (pattern.test(text)) found.add(amenity);
+  }
+  return Array.from(found);
+}
+
 // ─── Match score ──────────────────────────────────────────────────────────────
+
+function expectedPriceRange(budget: number): { min: number; max: number } {
+  if (budget <= 20) return { min: 30, max: 70 };
+  if (budget <= 40) return { min: 70, max: 120 };
+  if (budget <= 60) return { min: 120, max: 200 };
+  if (budget <= 80) return { min: 200, max: 400 };
+  return { min: 400, max: Infinity };
+}
 
 function calcHotelMatchScore(
   rating: number,
   reviewCount: number,
   stars: number,
-  price: number,
+  propertyType: PropertyType,
+  amenities: string[],
+  totalPrice: number,
   nights: number,
   profile: OnboardingData,
-): number {
-  let score = 60;
+): { score: number; breakdown: ScoreBreakdown } {
+  const breakdown: ScoreBreakdown = {};
+  const amenitySet = new Set(amenities);
 
-  // Rating bonus
-  if (rating >= 9) score += 15;
-  else if (rating >= 8) score += 10;
-  else if (rating >= 7) score += 5;
+  // Rating (0–20)
+  let ratingPts = 0;
+  if (rating >= 8.5) ratingPts = 20;
+  else if (rating >= 7.5) ratingPts = 12;
+  else if (rating >= 6.5) ratingPts = 5;
+  breakdown.rating = ratingPts;
 
-  // Accommodation preference match
-  const pref = profile.accommodation;
-  if ((pref.includes('ostello') || pref.includes('hostel')) && stars <= 2) score += 10;
-  else if ((pref.includes('hotel') || pref.includes('Hotel')) && stars >= 3 && stars <= 4) score += 10;
-  else if ((pref.includes('lusso') || pref.includes('luxury') || pref.includes('resort')) && stars >= 5) score += 10;
-  else if ((pref.includes('appartamento') || pref.includes('apartment') || pref.includes('Airbnb')) && stars === 0) score += 10;
+  // Property type match (0–20)
+  const pref = (profile.accommodation ?? []).map((a) => a.toLowerCase());
+  const wantsHostel = pref.some((p) => p.includes('hostel') || p.includes('ostello'));
+  const wantsLuxury = pref.some((p) => p.includes('lusso') || p.includes('luxury') || p.includes('resort'));
+  const wantsBoutique = pref.some((p) => p.includes('boutique'));
+  const wantsApartment = pref.some((p) => p.includes('appartamento') || p.includes('apartment') || p.includes('airbnb'));
+  const wantsBnB = pref.some((p) => p.includes('b&b') || p.includes('bed'));
+  const wantsHotel = pref.some((p) => p.includes('hotel') || p.includes('albergo'));
 
-  // Budget fit
-  const pricePerNight = nights > 0 ? price / nights : price;
-  if (profile.budget <= 30 && pricePerNight < 80) score += 10;
-  else if (profile.budget >= 70 && pricePerNight > 200) score += 10;
-  else if (pricePerNight >= 80 && pricePerNight <= 250) score += 10;
+  let typePts = 0;
+  if (wantsHostel && propertyType === 'hostel') typePts = 20;
+  else if (wantsLuxury && (propertyType === 'resort' || stars >= 5)) typePts = 20;
+  else if (wantsBoutique && propertyType === 'boutique') typePts = 20;
+  else if (wantsApartment && propertyType === 'apartment') typePts = 20;
+  else if (wantsBnB && (propertyType === 'bnb' || propertyType === 'guesthouse')) typePts = 20;
+  else if (wantsHotel && propertyType === 'hotel') typePts = 20;
+  else if (pref.length === 0) typePts = 10; // no preference — neutral
+  breakdown.type = typePts;
 
-  // Popularity
-  if (reviewCount > 1000) score += 5;
-  else if (reviewCount > 100) score += 3;
+  // Budget match (−10 to +20)
+  const pricePerNight = nights > 0 ? totalPrice / nights : totalPrice;
+  const range = expectedPriceRange(profile.budget ?? 50);
+  let budgetPts = 0;
+  if (range.max === Infinity) {
+    if (pricePerNight >= range.min) budgetPts = 20;
+    else if (pricePerNight >= range.min * 0.6) budgetPts = 10;
+    else budgetPts = -10;
+  } else {
+    const span = range.max - range.min;
+    const lo20 = range.min - span * 0.2;
+    const hi20 = range.max + span * 0.2;
+    const lo40 = range.min - span * 0.4;
+    const hi40 = range.max + span * 0.4;
+    if (pricePerNight >= lo20 && pricePerNight <= hi20) budgetPts = 20;
+    else if (pricePerNight >= lo40 && pricePerNight <= hi40) budgetPts = 10;
+    else budgetPts = -10;
+  }
+  breakdown.budget = budgetPts;
 
-  return Math.min(99, score);
+  // Experience cursor: iconic (0–40) vs hidden gem (60–100) (−5 to +15)
+  const exp = profile.experience ?? 50;
+  let expPts = 0;
+  if (exp <= 40) {
+    if (reviewCount >= 800) expPts = 15;
+    else if (reviewCount >= 300) expPts = 8;
+  } else if (exp >= 60) {
+    if (reviewCount >= 50 && reviewCount <= 300) expPts = 15;
+    else if (reviewCount > 300 && reviewCount <= 600) expPts = 8;
+    else if (reviewCount > 1500) expPts = -5;
+  } else {
+    if (reviewCount >= 200 && reviewCount <= 800) expPts = 10;
+  }
+  breakdown.experience = expPts;
+
+  // Amenities × vibe cursor (0–10)
+  const pace = profile.pace ?? 50;
+  let amenityPts = 0;
+  if (pace <= 40) {
+    if (amenitySet.has('spa') || amenitySet.has('wellness') || amenitySet.has('pool') || amenitySet.has('garden') || amenitySet.has('sauna') || amenitySet.has('jacuzzi')) {
+      amenityPts = 10;
+    }
+  } else if (pace >= 60) {
+    if (amenitySet.has('gym')) amenityPts = 5;
+  }
+  breakdown.amenities = amenityPts;
+
+  // Interests match (0–20, +10 per match, max 2)
+  const interests = (profile.interests ?? []).map((i) => i.toLowerCase());
+  let interestPts = 0;
+  const interestChecks: Array<[string[], string[]]> = [
+    [['gastronomia', 'food', 'cucina'], ['restaurant', 'bar']],
+    [['relax', 'wellness', 'spa', 'benessere'], ['spa', 'wellness', 'pool', 'sauna', 'jacuzzi']],
+    [['sport', 'fitness', 'palestra'], ['gym']],
+    [['natura', 'outdoor', 'green'], ['garden', 'beach', 'terrace']],
+  ];
+  for (const [userInterests, requiredAmenities] of interestChecks) {
+    if (
+      interests.some((i) => userInterests.includes(i)) &&
+      requiredAmenities.some((a) => amenitySet.has(a))
+    ) {
+      interestPts += 10;
+    }
+  }
+  interestPts = Math.min(20, interestPts);
+  breakdown.interests = interestPts;
+
+  // Companion match (−15 to +15)
+  const companion = (profile.companion ?? '').toLowerCase();
+  const childAges = profile.childAges ?? [];
+  const isFamily = companion.includes('famiglia') || companion.includes('family') || childAges.length > 0;
+  const isCouple = companion.includes('coppia') || companion.includes('couple') || companion.includes('partner');
+  const isSolo = companion.includes('solo') || companion.includes('da solo') || companion.includes('da sola');
+  const isFriends = companion.includes('amici') || companion.includes('friend');
+
+  let companionPts = 0;
+  if (isFamily) {
+    if (amenitySet.has('family-friendly')) companionPts = 15;
+    else if (amenitySet.has('adult-only')) companionPts = -15;
+  } else if (isCouple) {
+    if (amenitySet.has('romantic') || amenitySet.has('jacuzzi')) companionPts = 5;
+  } else if (isSolo) {
+    if (amenitySet.has('coworking') || propertyType === 'hostel') companionPts = 5;
+  } else if (isFriends) {
+    if (amenitySet.has('bar') || amenitySet.has('pool')) companionPts = 5;
+  }
+  breakdown.companion = companionPts;
+
+  const raw = ratingPts + typePts + budgetPts + expPts + amenityPts + interestPts + companionPts;
+  return { score: Math.max(0, Math.min(100, raw)), breakdown };
 }
 
 function assignHotelTags(hotels: HotelOffer[]): void {
@@ -112,6 +281,10 @@ function assignHotelTags(hotels: HotelOffer[]): void {
 
 // ─── Raw Booking types ────────────────────────────────────────────────────────
 
+interface BookingHighlight {
+  name?: string;
+}
+
 interface BookingProperty {
   id: number;
   name: string;
@@ -125,6 +298,7 @@ interface BookingProperty {
   latitude?: number;
   longitude?: number;
   currency?: string;
+  propertyHighlightStrip?: BookingHighlight[];
   priceBreakdown?: {
     grossPrice?: { value: number; currency: string };
     strikethroughPrice?: { value: number; currency: string };
@@ -149,27 +323,32 @@ function normalizeHotel(
   const label = hotel.accessibilityLabel ?? '';
 
   const grossPrice = p.priceBreakdown?.grossPrice;
-  if (!grossPrice || !grossPrice.value) return null; // skip hotels with no price
+  if (!grossPrice || !grossPrice.value) return null;
 
   const totalPrice = grossPrice.value;
   const currency = (grossPrice.currency ?? 'EUR') as Currency;
   const pricePerNight = nights > 0 ? Math.round(totalPrice / nights) : totalPrice;
-
   const originalPrice = p.priceBreakdown?.strikethroughPrice?.value;
   const stars = clampStars(p.accuratePropertyClass ?? 0);
   const rating = p.reviewScore ?? 0;
   const reviewCount = p.reviewCount ?? 0;
   const reviewWord = p.reviewScoreWord ?? '';
   const zone = extractDistrict(label, p.wishlistName ?? '');
-  const hasFreeCancellation = mapRefundPolicy(label) === 'flexible';
   const refundPolicy = mapRefundPolicy(label);
+  const hasFreeCancellation = refundPolicy === 'flexible';
 
-  // Use larger images (square1024 if available, else first URL)
+  const highlightNames = (p.propertyHighlightStrip ?? []).map((h) => h.name ?? '');
+  const propertyType = parsePropertyType(label, stars, highlightNames);
+  const amenities = parseAmenities(label, highlightNames);
+
   const rawPhotos = p.photoUrls ?? [];
   const largePhotos = rawPhotos.map((url) => url.replace('square500', 'square1024'));
   const thumbnailUrl = rawPhotos[0];
 
-  const matchScore = calcHotelMatchScore(rating, reviewCount, stars, totalPrice, nights, profile);
+  const { score: matchScore, breakdown } = calcHotelMatchScore(
+    rating, reviewCount, stars, propertyType, amenities,
+    totalPrice, nights, profile,
+  );
 
   return {
     id: String(p.id),
@@ -177,6 +356,7 @@ function normalizeHotel(
     name: p.name,
     zone,
     stars,
+    propertyType,
     thumbnailUrl,
     photoUrls: largePhotos,
     rating,
@@ -189,8 +369,9 @@ function normalizeHotel(
     currency,
     refundPolicy,
     matchScore,
+    scoreBreakdown: breakdown,
     tags: [],
-    amenities: [],
+    amenities,
     rawHotel: hotel,
   };
 }
@@ -224,8 +405,7 @@ export async function readHotelCache(key: string): Promise<{ hotels: HotelOffer[
 
 async function writeHotelCache(key: string, hotels: HotelOffer[]): Promise<void> {
   try {
-    const payload: CachedHotels = { timestamp: Date.now(), hotels };
-    await AsyncStorage.setItem(key, JSON.stringify(payload));
+    await AsyncStorage.setItem(key, JSON.stringify({ timestamp: Date.now(), hotels }));
   } catch {
     // non-fatal
   }
@@ -279,7 +459,6 @@ export async function searchHotels(
     return { hotels: cachedResult.hotels, cacheAgeMs: cachedResult.ageMs };
   }
 
-  // Resolve destination
   const destName = params.destination.split(',')[0].trim();
   const location = await searchHotelLocation(destName);
   if (!location) throw new BookingError('Destinazione non trovata su Booking.com');
@@ -288,45 +467,88 @@ export async function searchHotels(
   const departureDate = params.checkOut.toISOString().split('T')[0];
   const nights = Math.max(1, Math.round((params.checkOut.getTime() - params.checkIn.getTime()) / 86_400_000));
 
-  const url = new URL(`${RAPIDAPI_BASE}/searchHotels`);
-  url.searchParams.set('dest_id', location.dest_id);
-  url.searchParams.set('search_type', location.dest_type);
-  url.searchParams.set('arrival_date', arrivalDate);
-  url.searchParams.set('departure_date', departureDate);
-  url.searchParams.set('adults', String(params.travelers));
-  url.searchParams.set('room_qty', '1');
-  url.searchParams.set('page_number', '1');
-  url.searchParams.set('units', 'metric');
-  url.searchParams.set('temperature_unit', 'c');
-  url.searchParams.set('languagecode', 'it');
-  url.searchParams.set('currency_code', 'EUR');
+  const baseParams = new URLSearchParams({
+    dest_id: location.dest_id,
+    search_type: location.dest_type,
+    arrival_date: arrivalDate,
+    departure_date: departureDate,
+    adults: String(params.travelers),
+    room_qty: '1',
+    units: 'metric',
+    temperature_unit: 'c',
+    languagecode: 'it',
+    currency_code: 'EUR',
+    sort_by: 'popularity',
+  });
+
+  async function fetchPage(page: number): Promise<BookingHotel[]> {
+    const url = new URL(`${RAPIDAPI_BASE}/searchHotels`);
+    baseParams.forEach((v, k) => url.searchParams.set(k, v));
+    url.searchParams.set('page_number', String(page));
+
+    const resp = await fetchWithTimeout(url.toString(), { headers: rapidApiHeaders() }, 20_000);
+    if (!resp.ok) {
+      if (__DEV__) console.warn(`[booking] page ${page} error ${resp.status}`);
+      return [];
+    }
+    const json = await resp.json() as { status: boolean; data?: { hotels?: BookingHotel[] } };
+    return json.data?.hotels ?? [];
+  }
 
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const resp = await fetchWithTimeout(url.toString(), { headers: rapidApiHeaders() }, 20_000);
+      // Fetch 3 pages in parallel for ~60-90 hotels
+      const [r1, r2, r3] = await Promise.allSettled([fetchPage(1), fetchPage(2), fetchPage(3)]);
 
-      if (!resp.ok) {
-        const body = await resp.text().catch(() => '');
-        if (__DEV__) console.error('[booking] searchHotels error', resp.status, body);
-        throw new BookingError(`Booking API ${resp.status}`, resp.status);
+      // Merge and deduplicate by property ID
+      const seen = new Set<number>();
+      const rawHotels: BookingHotel[] = [];
+      for (const result of [r1, r2, r3]) {
+        if (result.status === 'fulfilled') {
+          for (const h of result.value) {
+            if (!seen.has(h.property.id)) {
+              seen.add(h.property.id);
+              rawHotels.push(h);
+            }
+          }
+        }
       }
 
-      const json = await resp.json() as { status: boolean; data?: { hotels?: BookingHotel[] } };
-      const rawHotels = json.data?.hotels ?? [];
+      if (rawHotels.length === 0) {
+        if (__DEV__) console.warn('[booking] no hotels returned');
+        return { hotels: [] };
+      }
 
       const normalized = rawHotels
         .map((h) => normalizeHotel(h, nights, profile))
         .filter((h): h is HotelOffer => h !== null);
 
-      // Sort by match score desc, then price asc
-      normalized.sort((a, b) => b.matchScore - a.matchScore || a.totalPrice - b.totalPrice);
-      assignHotelTags(normalized);
+      if (DEBUG_MATCH) {
+        const avg = normalized.length > 0 ? Math.round(normalized.reduce((s, h) => s + h.matchScore, 0) / normalized.length) : 0;
+        console.log(`[HOTEL] pre-filter: ${normalized.length} hotels, avg score: ${avg}`);
+        normalized.slice(0, 10).forEach((h) => console.log(`  ${h.name} | score: ${h.matchScore} | ${JSON.stringify(h.scoreBreakdown)}`));
+      }
 
-      await writeHotelCache(cacheKey, normalized);
-      if (__DEV__) console.log(`[booking] ${normalized.length} hotels fetched`);
-      return { hotels: normalized };
+      // Filter poor matches — relax threshold if too few results
+      const filtered = normalized.filter((h) => h.matchScore >= 5);
+      const finalHotels = filtered.length >= 3 ? filtered : normalized;
+
+      finalHotels.sort((a, b) => b.matchScore - a.matchScore || a.totalPrice - b.totalPrice);
+      assignHotelTags(finalHotels);
+
+      if (DEBUG_MATCH) {
+        finalHotels.slice(0, 10).forEach((h) => {
+          const bd = h.scoreBreakdown ?? {};
+          const bdStr = Object.entries(bd).map(([k, v]) => `${k}: ${v}`).join(', ');
+          console.log(`[HOTEL] ${h.name} | score: ${h.matchScore} | breakdown: { ${bdStr} }`);
+        });
+      }
+
+      await writeHotelCache(cacheKey, finalHotels);
+      if (__DEV__) console.log(`[booking] ${finalHotels.length} hotels (${rawHotels.length} raw)`);
+      return { hotels: finalHotels };
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
       if (__DEV__) console.warn(`[booking] attempt ${attempt + 1} failed:`, lastError.message);
