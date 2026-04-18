@@ -108,7 +108,19 @@ export const useAppStore = create<AppState>()(
         trips: state.trips,
       }),
       onRehydrateStorage: () => (state) => {
-        state?.setHasHydrated(true);
+        if (!state) return;
+        state.setHasHydrated(true);
+        // Fill fields missing from older persisted versions (e.g. experience added after first save)
+        const current = state.onboardingData;
+        const filled: Partial<OnboardingData> = {};
+        (Object.keys(defaultOnboarding) as (keyof OnboardingData)[]).forEach((key) => {
+          if (current[key] === undefined) {
+            (filled as Record<string, unknown>)[key] = defaultOnboarding[key];
+          }
+        });
+        if (Object.keys(filled).length > 0) {
+          state.setOnboardingData(filled);
+        }
       },
     }
   )

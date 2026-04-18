@@ -90,32 +90,36 @@ function parsePropertyType(label: string, stars: number, highlightNames: string[
 // ─── Amenities parsing ────────────────────────────────────────────────────────
 
 const AMENITY_PATTERNS: Array<[RegExp, string]> = [
-  [/pool|piscina/i, 'pool'],
-  [/\bspa\b/i, 'spa'],
+  [/pool|piscina|swimming/i, 'pool'],
+  [/\bspa\b|benessere|terme/i, 'spa'],
   [/wellness/i, 'wellness'],
-  [/gym|palestra|fitness/i, 'gym'],
+  [/gym|palestra|fitness|sport.center/i, 'gym'],
+  [/breakfast.inclu|colazione.inclu|colazione.gratuita|breakfast.free|free.breakfast/i, 'breakfast'],
   [/breakfast|colazione/i, 'breakfast'],
-  [/parking|parcheggio|garage/i, 'parking'],
-  [/\bwifi\b|wi-fi/i, 'wifi'],
-  [/pet.friendly|animali ammessi/i, 'pet-friendly'],
-  [/family.friendly|famiglie|bambini/i, 'family-friendly'],
-  [/kids.club|club bambini/i, 'family-friendly'],
-  [/\bbeach\b|spiaggia/i, 'beach'],
-  [/garden|giardino/i, 'garden'],
-  [/\bbar\b/i, 'bar'],
-  [/restaurant|ristorante/i, 'restaurant'],
-  [/rooftop/i, 'rooftop'],
-  [/romantic|romantico/i, 'romantic'],
-  [/adult.only|solo adulti|adults only/i, 'adult-only'],
-  [/coworking|co.working/i, 'coworking'],
-  [/terrace|terrazza/i, 'terrace'],
+  [/parking|parcheggio|garage|free.parking|parcheggio.gratuito/i, 'parking'],
+  [/wi-?fi|wireless.internet/i, 'wifi'],
+  [/pet.friendly|animali.ammessi|pets.allowed|cani.ammessi/i, 'pet-friendly'],
+  [/family.friendly|famiglie|bambini|kids.welcome/i, 'family-friendly'],
+  [/kids.club|club.bambini|children.club/i, 'family-friendly'],
+  [/\bbeach\b|spiaggia|fronte.mare|beachfront/i, 'beach'],
+  [/garden|giardino|courtyard/i, 'garden'],
+  [/\bbar\b|cocktail.bar|rooftop.bar/i, 'bar'],
+  [/restaurant|ristorante|dining/i, 'restaurant'],
+  [/rooftop|terrazza.sul.tetto/i, 'rooftop'],
+  [/romantic|romantico|honeymoon|luna.di.miele/i, 'romantic'],
+  [/adult.?only|solo.adulti|adults.?only/i, 'adult-only'],
+  [/coworking|co.?working|business.center/i, 'coworking'],
+  [/terrace|terrazza|balcony|balcone/i, 'terrace'],
   [/sauna/i, 'sauna'],
-  [/jacuzzi|hot tub/i, 'jacuzzi'],
-  [/airport.shuttle|navetta aeroporto/i, 'airport-shuttle'],
+  [/jacuzzi|hot.tub|idromassaggio/i, 'jacuzzi'],
+  [/airport.shuttle|navetta.aeroporto|shuttle.service/i, 'airport-shuttle'],
+  [/vista.mare|sea.view|ocean.view|lake.view|vista.lago|city.view|vista.citt/i, 'sea-view'],
+  [/onsen|hot.spring|bagni.termali/i, 'spa'],
+  [/concierge|butler|maggiordomo/i, 'wellness'],
 ];
 
-function parseAmenities(label: string, highlightNames: string[]): string[] {
-  const text = label + ' ' + highlightNames.join(' ');
+function parseAmenities(label: string, highlightNames: string[], hotelName = ''): string[] {
+  const text = label + ' ' + highlightNames.join(' ') + ' ' + hotelName;
   const found = new Set<string>();
   for (const [pattern, amenity] of AMENITY_PATTERNS) {
     if (pattern.test(text)) found.add(amenity);
@@ -146,6 +150,10 @@ function calcHotelMatchScore(
   const breakdown: ScoreBreakdown = {};
   const amenitySet = new Set(amenities);
 
+  if (__DEV__) {
+    console.log('[DIAG] profile → accommodation:', profile.accommodation, '| interests:', profile.interests, '| companion:', profile.companion, '| experience:', profile.experience, '| pace(vibe):', profile.pace);
+  }
+
   // Rating (0–20)
   let ratingPts = 0;
   if (rating >= 8.5) ratingPts = 20;
@@ -153,23 +161,30 @@ function calcHotelMatchScore(
   else if (rating >= 6.5) ratingPts = 5;
   breakdown.rating = ratingPts;
 
-  // Property type match (0–20)
+  // Property type match (0–20): best-of-preference loop so multiple prefs all get a chance
   const pref = (profile.accommodation ?? []).map((a) => a.toLowerCase());
-  const wantsHostel = pref.some((p) => p.includes('hostel') || p.includes('ostello'));
-  const wantsLuxury = pref.some((p) => p.includes('lusso') || p.includes('luxury') || p.includes('resort'));
-  const wantsBoutique = pref.some((p) => p.includes('boutique'));
-  const wantsApartment = pref.some((p) => p.includes('appartamento') || p.includes('apartment') || p.includes('airbnb'));
-  const wantsBnB = pref.some((p) => p.includes('b&b') || p.includes('bed'));
-  const wantsHotel = pref.some((p) => p.includes('hotel') || p.includes('albergo'));
-
-  let typePts = 0;
-  if (wantsHostel && propertyType === 'hostel') typePts = 20;
-  else if (wantsLuxury && (propertyType === 'resort' || stars >= 5)) typePts = 20;
-  else if (wantsBoutique && propertyType === 'boutique') typePts = 20;
-  else if (wantsApartment && propertyType === 'apartment') typePts = 20;
-  else if (wantsBnB && (propertyType === 'bnb' || propertyType === 'guesthouse')) typePts = 20;
-  else if (wantsHotel && propertyType === 'hotel') typePts = 20;
-  else if (pref.length === 0) typePts = 10; // no preference — neutral
+  let typePts = pref.length === 0 ? 10 : 0; // neutral when no preference
+  for (const want of pref) {
+    let pts = 0;
+    if ((want.includes('hostel') || want.includes('ostello')) && propertyType === 'hostel') {
+      pts = 20;
+    } else if ((want.includes('apartment') || want.includes('appartamento') || want.includes('airbnb')) && propertyType === 'apartment') {
+      pts = 20;
+    } else if ((want.includes('hotel') || want.includes('albergo')) && (propertyType === 'hotel' || propertyType === 'resort')) {
+      pts = 20;
+    } else if (want.includes('boutique') && (propertyType === 'boutique' || (stars >= 4 && reviewCount < 500))) {
+      pts = 20;
+    } else if ((want.includes('luxury') || want.includes('lusso')) && stars >= 5) {
+      pts = 20;
+    } else if (want.includes('resort') && propertyType === 'resort') {
+      pts = 20;
+    } else if ((want.includes('b&b') || want.includes('bed')) && (propertyType === 'bnb' || propertyType === 'guesthouse')) {
+      pts = 20;
+    } else if ((want.includes('guesthouse') || want.includes('affittacamere') || want.includes('pensione')) && (propertyType === 'guesthouse' || propertyType === 'bnb')) {
+      pts = 20;
+    }
+    if (pts > typePts) typePts = pts;
+  }
   breakdown.type = typePts;
 
   // Budget match (−10 to +20)
@@ -192,18 +207,21 @@ function calcHotelMatchScore(
   }
   breakdown.budget = budgetPts;
 
-  // Experience cursor: iconic (0–40) vs hidden gem (60–100) (−5 to +15)
+  // Experience cursor: iconic (< 30) / mix (30–70) / hidden gem (> 70)
   const exp = profile.experience ?? 50;
   let expPts = 0;
-  if (exp <= 40) {
-    if (reviewCount >= 800) expPts = 15;
-    else if (reviewCount >= 300) expPts = 8;
-  } else if (exp >= 60) {
-    if (reviewCount >= 50 && reviewCount <= 300) expPts = 15;
-    else if (reviewCount > 300 && reviewCount <= 600) expPts = 8;
+  if (exp < 30) {
+    // Iconic: wants well-known, many-reviewed properties
+    if (reviewCount >= 500) expPts = 15;
+    else if (reviewCount >= 200) expPts = 8;
+  } else if (exp > 70) {
+    // Hidden gem: small, under-the-radar properties
+    if (reviewCount >= 30 && reviewCount <= 200) expPts = 15;
+    else if (reviewCount > 200 && reviewCount <= 500) expPts = 8;
     else if (reviewCount > 1500) expPts = -5;
   } else {
-    if (reviewCount >= 200 && reviewCount <= 800) expPts = 10;
+    // Mix: broad middle ground
+    if (reviewCount >= 150 && reviewCount <= 1000) expPts = 10;
   }
   breakdown.experience = expPts;
 
@@ -339,7 +357,11 @@ function normalizeHotel(
 
   const highlightNames = (p.propertyHighlightStrip ?? []).map((h) => h.name ?? '');
   const propertyType = parsePropertyType(label, stars, highlightNames);
-  const amenities = parseAmenities(label, highlightNames);
+  const amenities = parseAmenities(label, highlightNames, p.name);
+
+  if (__DEV__) {
+    console.log(`[DIAG] ${p.name} | type: ${propertyType} | amenities: [${amenities.join(', ')}] | highlights: [${highlightNames.join(' | ')}] | label: ${label.slice(0, 120)}`);
+  }
 
   const rawPhotos = p.photoUrls ?? [];
   const largePhotos = rawPhotos.map((url) => url.replace('square500', 'square1024'));
@@ -519,6 +541,10 @@ export async function searchHotels(
       if (rawHotels.length === 0) {
         if (__DEV__) console.warn('[booking] no hotels returned');
         return { hotels: [] };
+      }
+
+      if (__DEV__ && rawHotels.length > 0) {
+        console.log('[DIAG] RAW hotel[0].property:', JSON.stringify(rawHotels[0].property, null, 2));
       }
 
       const normalized = rawHotels

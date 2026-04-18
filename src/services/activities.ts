@@ -65,7 +65,10 @@ function extractCategories(
 ): string[] {
   const cats = new Set<string>();
   if (primaryCategory) cats.add(primaryCategory.toLowerCase());
-  labels.forEach((l) => cats.add(l.toLowerCase()));
+  labels.forEach((l) => {
+    if (__DEV__ && typeof l !== 'string') console.log('[DIAG] label non-string:', JSON.stringify(l));
+    if (typeof l === 'string') cats.add(l.toLowerCase());
+  });
   return Array.from(cats);
 }
 
