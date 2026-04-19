@@ -23,7 +23,7 @@ import { BookingsTab } from '../../src/components/trips/BookingsTab';
 import { Toast } from '../../src/components/common/Toast';
 import type { TripItem, Trip } from '../../src/types/trip';
 import type { AIActivitySuggestion, AIItinerary, AIMultiCityItinerary } from '../../src/types/ai-itinerary';
-import type { CartItem, SearchParams, Currency } from '../../src/types/booking';
+import type { CartItem, SearchParams, Currency, BookingType, BookingStatus } from '../../src/types/booking';
 import { Colors, FontFamily, FontSize, Spacing, Radius } from '../../src/constants/theme';
 
 // ─── AI slot adapter ──────────────────────────────────────────────────────────
@@ -331,11 +331,29 @@ interface BookingDisplay {
   subtitle: string;
   timeLabel?: string;
   isAllDay?: boolean;
+  // BookingItem-aware fields
+  status?: BookingStatus;
+  bookingItemId?: string; // for navigation to booking-detail
+  tripId?: string;
 }
 
 function BookingCard({ b, isDraft }: { b: BookingDisplay; isDraft?: boolean }) {
+  const isBooked = b.status === 'booked';
+  const isSelected = b.status === 'selected';
+
+  const handlePress = () => {
+    if (b.bookingItemId && b.tripId) {
+      router.push(`/trip/booking-detail?tripId=${b.tripId}&bookingKey=${b.bookingItemId}`);
+    }
+  };
+
+  const Wrapper = b.bookingItemId ? Pressable : View;
+  const wrapperProps = b.bookingItemId
+    ? { onPress: handlePress, style: ({ pressed }: { pressed: boolean }) => [bcStyles.card, isDraft && bcStyles.cardDraft, pressed && { opacity: 0.85 }] as const }
+    : { style: [bcStyles.card, isDraft && bcStyles.cardDraft] as const };
+
   return (
-    <View style={[bcStyles.card, isDraft && bcStyles.cardDraft]}>
+    <Wrapper {...(wrapperProps as Record<string, unknown>)}>
       <View style={bcStyles.left}>
         <View style={[bcStyles.circle, isDraft && bcStyles.circleDraft]}>
           <Text style={bcStyles.emoji}>{b.emoji}</Text>
@@ -347,12 +365,20 @@ function BookingCard({ b, isDraft }: { b: BookingDisplay; isDraft?: boolean }) {
         <Text style={bcStyles.title} numberOfLines={1}>{b.title}</Text>
         <Text style={bcStyles.subtitle} numberOfLines={1}>{b.subtitle}</Text>
       </View>
-      {isDraft && (
+      {isBooked ? (
+        <View style={bcStyles.bookedBadge}>
+          <Text style={bcStyles.bookedBadgeText}>✓ Prenotato</Text>
+        </View>
+      ) : isSelected ? (
         <View style={bcStyles.draftBadge}>
           <Text style={bcStyles.draftBadgeText}>Da prenotare</Text>
         </View>
-      )}
-    </View>
+      ) : isDraft ? (
+        <View style={bcStyles.draftBadge}>
+          <Text style={bcStyles.draftBadgeText}>Da prenotare</Text>
+        </View>
+      ) : null}
+    </Wrapper>
   );
 }
 
@@ -371,6 +397,8 @@ const bcStyles = StyleSheet.create({
   subtitle: { fontFamily: FontFamily.body, fontSize: FontSize.xs, color: Colors.text.secondary },
   draftBadge: { backgroundColor: Colors.navy + '14', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
   draftBadgeText: { fontFamily: FontFamily.bodyMedium, fontSize: 10, color: Colors.navy },
+  bookedBadge: { backgroundColor: Colors.teal + '18', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
+  bookedBadgeText: { fontFamily: FontFamily.bodyMedium, fontSize: 10, color: Colors.teal },
 });
 
 // ─── ManualCard ───────────────────────────────────────────────────────────────
@@ -690,6 +718,11 @@ const ITEM_EMOJI: Record<TripItem['type'], string> = {
   flight: '✈️', hotel: '🏨', activity: '🎟️', car: '🚗', insurance: '🛡️',
 };
 
+const BOOKING_TYPE_EMOJI: Record<BookingType, string> = {
+  flight: '✈️', hotel: '🏨', activity: '🎟️', car: '🚗',
+  insurance: '🛡️', visa: '🪪', transfer: '🚄',
+};
+
 export default function TripDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
@@ -751,34 +784,81 @@ export default function TripDetailScreen() {
 
   const days = useMemo(() => {
     if (!trip) return [];
-    const fmt = (d: Date) => d.toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'short' });
+    const fmtDay = (d: Date) => d.toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'short' });
+    const isoDay = (d: Date) => d.toISOString().split('T')[0];
+
     return Array.from({ length: totalDays }, (_, i) => {
       const date = new Date(checkIn.getTime() + i * msPerDay);
+      const dayStr = isoDay(date);
       const dayBookings: BookingDisplay[] = [];
 
-      for (const item of trip.items) {
-        if (item.type === 'insurance') continue;
-        let showOnDay = false;
-        if (item.departureAt) {
-          const d = new Date(item.departureAt);
-          showOnDay = d.getFullYear() === date.getFullYear() && d.getMonth() === date.getMonth() && d.getDate() === date.getDate();
-        } else if (item.type === 'hotel' && i === 0) {
-          showOnDay = true;
-        } else if (item.type === 'car' && i === 0) {
-          showOnDay = true;
+      if (trip.bookings && trip.bookings.length > 0) {
+        // ── New format: BookingItem[] ──────────────────────────────────────────
+        for (const booking of trip.bookings) {
+          if (booking.type === 'insurance' || booking.type === 'visa') continue;
+          const { startDate, endDate, startTime } = booking.timing;
+          let showOnDay = false;
+          if (booking.type === 'hotel') {
+            // Hotel: show check-in on startDate, check-out on endDate
+            showOnDay = startDate === dayStr || endDate === dayStr;
+          } else {
+            showOnDay = startDate === dayStr;
+          }
+          if (!showOnDay) continue;
+
+          const subtitle = booking.type === 'hotel' && booking.hotel
+            ? `${booking.hotel.nights} notti · check-in ${booking.hotel.checkinTime}`
+            : booking.type === 'flight' && booking.flight
+            ? `${booking.flight.origin} → ${booking.flight.destination}`
+            : booking.type === 'transfer' && booking.transfer
+            ? `${booking.transfer.modeLabel} · ${booking.transfer.from} → ${booking.transfer.to}`
+            : booking.provider;
+
+          dayBookings.push({
+            id: booking.id,
+            emoji: BOOKING_TYPE_EMOJI[booking.type],
+            title: booking.title,
+            subtitle,
+            timeLabel: startTime,
+            isAllDay: !startTime,
+            status: booking.status,
+            bookingItemId: booking.id,
+            tripId: trip.id,
+          });
         }
-        if (!showOnDay) continue;
-        let timeLabel: string | undefined;
-        if (item.departureAt) {
-          const d = new Date(item.departureAt);
-          timeLabel = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+      } else {
+        // ── Old format: TripItem[] (fallback) ─────────────────────────────────
+        for (const item of trip.items) {
+          if (item.type === 'insurance') continue;
+          let showOnDay = false;
+          if (item.departureAt) {
+            const d = new Date(item.departureAt);
+            showOnDay = d.getFullYear() === date.getFullYear() && d.getMonth() === date.getMonth() && d.getDate() === date.getDate();
+          } else if (item.type === 'hotel' && i === 0) {
+            showOnDay = true;
+          } else if (item.type === 'car' && i === 0) {
+            showOnDay = true;
+          }
+          if (!showOnDay) continue;
+          let timeLabel: string | undefined;
+          if (item.departureAt) {
+            const d = new Date(item.departureAt);
+            timeLabel = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+          }
+          dayBookings.push({ id: item.id, emoji: ITEM_EMOJI[item.type], title: item.title, subtitle: item.subtitle, timeLabel, isAllDay: !item.departureAt });
         }
-        dayBookings.push({ id: item.id, emoji: ITEM_EMOJI[item.type], title: item.title, subtitle: item.subtitle, timeLabel, isAllDay: !item.departureAt });
       }
 
-      return { date, dayIndex: i, dayLabel: `Giorno ${i + 1}`, dateLabel: fmt(date), bookings: dayBookings };
+      // Sort timed events chronologically; all-day events last
+      dayBookings.sort((a, b) => {
+        if (a.isAllDay && !b.isAllDay) return 1;
+        if (!a.isAllDay && b.isAllDay) return -1;
+        return (a.timeLabel ?? '').localeCompare(b.timeLabel ?? '');
+      });
+
+      return { date, dayIndex: i, dayLabel: `Giorno ${i + 1}`, dateLabel: fmtDay(date), bookings: dayBookings };
     });
-  }, [trip?.id, totalDays]);
+  }, [trip?.id, trip?.bookings, totalDays]);
 
   const takenSlotsByDay = useMemo<Set<SlotId>[]>(() => {
     return days.map((day) => {
