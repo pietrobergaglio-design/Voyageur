@@ -2,7 +2,7 @@ import { View, Text, ScrollView, Pressable, StyleSheet, Alert } from 'react-nati
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useAppStore } from '../../src/stores/useAppStore';
-import type { FlightDirectionGroup, HotelOffer, ActivityOffer, CarOffer, InsurancePlan, VisaInfo } from '../../src/types/booking';
+import type { FlightDirectionGroup, HotelOffer, ActivityOffer, CarOffer, InsurancePlan, VisaInfo, BookingItem } from '../../src/types/booking';
 import { Colors, FontFamily, FontSize, Spacing, Radius } from '../../src/constants/theme';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -197,6 +197,131 @@ function VisaContent({ visa }: { visa: VisaInfo }) {
   );
 }
 
+// ─── BookingItem renderer (new unified format) ───────────────────────────────
+
+const BOOKING_EMOJI: Record<string, string> = {
+  flight: '✈️', hotel: '🏨', activity: '🎯', car: '🚗',
+  insurance: '🏥', visa: '🛂', transfer: '🚉',
+};
+
+function BookingItemContent({ booking, isDraft }: { booking: BookingItem; isDraft: boolean }) {
+  const refundable = booking.refund.refundable;
+  const deadline = booking.refund.fullRefundDeadline ?? booking.refund.partialRefundDeadline ?? null;
+  const daysLeft = deadline
+    ? Math.floor((new Date(deadline).getTime() - Date.now()) / 86_400_000)
+    : null;
+  const refundEmoji = !refundable ? '🔴' : daysLeft === null ? '🟢' : daysLeft > 7 ? '🟢' : daysLeft >= 2 ? '🟡' : '🔴';
+
+  return (
+    <>
+      <Text style={s.heroEmoji}>{BOOKING_EMOJI[booking.type] ?? '📋'}</Text>
+      <Text style={s.title}>{booking.title}</Text>
+      <Text style={s.sub}>{booking.provider}</Text>
+
+      {/* Timing */}
+      <View style={s.divider} />
+      <Text style={s.sectionLabel}>Date</Text>
+      <Text style={s.description}>
+        {fmtDate(booking.timing.startDate)}
+        {booking.timing.startTime ? ` alle ${booking.timing.startTime}` : ''}
+        {booking.timing.endDate ? ` → ${fmtDate(booking.timing.endDate)}` : ''}
+        {booking.timing.endTime ? ` alle ${booking.timing.endTime}` : ''}
+      </Text>
+
+      {/* Flight */}
+      {booking.type === 'flight' && booking.flight && (
+        <>
+          <View style={s.divider} />
+          <Text style={s.sectionLabel}>Rotta</Text>
+          <Text style={s.description}>{booking.flight.origin} → {booking.flight.destination}</Text>
+          {booking.flight.flightNumber ? <Text style={s.sub}>Volo {booking.flight.flightNumber}</Text> : null}
+          {booking.flight.stops.length > 0 && (
+            <Text style={s.sub}>{booking.flight.stops.length} scala: {booking.flight.stops.join(', ')}</Text>
+          )}
+          {booking.flight.stops.length === 0 && <Text style={s.sub}>Volo diretto</Text>}
+        </>
+      )}
+
+      {/* Hotel */}
+      {booking.type === 'hotel' && booking.hotel && (
+        <>
+          <View style={s.divider} />
+          <Text style={s.sectionLabel}>Hotel</Text>
+          {booking.hotel.address ? <Text style={s.description}>{booking.hotel.address}</Text> : null}
+          {booking.hotel.roomType ? <Text style={s.sub}>{booking.hotel.roomType}</Text> : null}
+          {booking.hotel.nights ? <Text style={s.sub}>{booking.hotel.nights} notti</Text> : null}
+          <Text style={s.sub}>Check-in: {booking.hotel.checkinTime} · Check-out: {booking.hotel.checkoutTime}</Text>
+          {booking.hotel.amenities.length > 0 && (
+            <View style={s.tagsWrap}>
+              {booking.hotel.amenities.map((a) => (
+                <View key={a} style={s.tag}><Text style={s.tagText}>{a}</Text></View>
+              ))}
+            </View>
+          )}
+        </>
+      )}
+
+      {/* Car */}
+      {booking.type === 'car' && booking.car && (
+        <>
+          <View style={s.divider} />
+          <Text style={s.sectionLabel}>Auto</Text>
+          <Text style={s.description}>{booking.car.carType} · {booking.car.company}</Text>
+          <Text style={s.sub}>Ritiro: {booking.car.pickupLocation} alle {booking.car.pickupTime}</Text>
+          <Text style={s.sub}>Reso: {booking.car.returnLocation} alle {booking.car.returnTime}</Text>
+        </>
+      )}
+
+      {/* Insurance */}
+      {booking.type === 'insurance' && booking.insurance && (
+        <>
+          <View style={s.divider} />
+          <Text style={s.sectionLabel}>Copertura {booking.insurance.plan}</Text>
+          {booking.insurance.coverage.map((c, i) => (
+            <Text key={i} style={s.bullet}>✓ {c}</Text>
+          ))}
+          {booking.insurance.medicalLimit && (
+            <Text style={s.sub}>Copertura medica: €{booking.insurance.medicalLimit.toLocaleString('it-IT')}</Text>
+          )}
+        </>
+      )}
+
+      {/* Transfer */}
+      {booking.type === 'transfer' && booking.transfer && (
+        <>
+          <View style={s.divider} />
+          <Text style={s.sectionLabel}>Transfer</Text>
+          <Text style={s.description}>{booking.transfer.from} → {booking.transfer.to}</Text>
+          <Text style={s.sub}>{booking.transfer.modeLabel}</Text>
+          {booking.transfer.durationMin ? <Text style={s.sub}>{fmtDur(booking.transfer.durationMin)}</Text> : null}
+          {booking.transfer.priceEstimate ? <Text style={s.sub}>Stima: €{booking.transfer.priceEstimate}</Text> : null}
+        </>
+      )}
+
+      {/* Refund */}
+      <View style={s.divider} />
+      <Text style={s.sectionLabel}>Rimborso {refundEmoji}</Text>
+      <Text style={s.description}>{booking.refund.description}</Text>
+      {deadline && daysLeft !== null && daysLeft >= 0 && (
+        <Text style={s.sub}>Scade: {fmtDate(deadline)} ({daysLeft} {daysLeft === 1 ? 'giorno' : 'giorni'} rimasti)</Text>
+      )}
+
+      {/* Confirmation */}
+      {booking.confirmation?.code && (
+        <>
+          <View style={s.divider} />
+          <Text style={s.sectionLabel}>Codice conferma</Text>
+          <Text style={[s.description, { fontFamily: FontFamily.bodyBold, letterSpacing: 1 }]}>{booking.confirmation.code}</Text>
+        </>
+      )}
+
+      <View style={s.divider} />
+      <Text style={s.priceLabel}>{isDraft ? 'Prezzo stimato' : 'Prezzo pagato'}</Text>
+      <Text style={s.price}>€{Math.round(booking.price).toLocaleString('it-IT')}</Text>
+    </>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function BookingDetailPage() {
@@ -229,6 +354,12 @@ export default function BookingDetailPage() {
     : 1;
 
   const renderContent = () => {
+    // New format: look up BookingItem by id in trip.bookings
+    if (trip.bookings && trip.bookings.length > 0) {
+      const booking = trip.bookings.find((b) => b.id === bookingKey);
+      if (booking) return <BookingItemContent booking={booking} isDraft={isDraft} />;
+    }
+
     if (bookingKey === 'flight_outbound' && trip.flightOutbound) {
       return <FlightContent group={trip.flightOutbound} label="Andata" isDraft={isDraft} />;
     }
@@ -365,9 +496,13 @@ export default function BookingDetailPage() {
         </Pressable>
 
         {/* Documenti */}
-        <View style={s.docsRow}>
-          <Text style={s.docsText}>📄 Codice conferma e QR nei Documenti</Text>
-        </View>
+        <Pressable
+          style={({ pressed }) => [s.docsRow, pressed && { opacity: 0.7 }]}
+          onPress={() => router.push('/(tabs)/docs')}
+          accessibilityRole="button"
+        >
+          <Text style={s.docsText}>📄 Codice conferma e QR nei Documenti →</Text>
+        </Pressable>
 
         {/* Cancella */}
         <Pressable

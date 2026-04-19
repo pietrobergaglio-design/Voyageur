@@ -1,11 +1,13 @@
 import { useMemo } from 'react';
-import { View, Text, ScrollView, StyleSheet, StatusBar } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, StatusBar, Pressable } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { router } from 'expo-router';
 import { useAppStore } from '../../src/stores/useAppStore';
 import { mockTokyoTrip } from '../../src/data/mockTrip';
 import { DocSection } from '../../src/components/docs/DocSection';
 import { Colors, FontFamily, FontSize, Spacing, Radius } from '../../src/constants/theme';
 import type { TripItem } from '../../src/types/trip';
+import type { BookingItem } from '../../src/types/booking';
 
 // ─── QR placeholder ───────────────────────────────────────────────────────────
 
@@ -281,6 +283,81 @@ const refundStyles = StyleSheet.create({
   },
 });
 
+// ─── BookingItem ticket card (new format) ────────────────────────────────────
+
+const BOOKING_EMOJI_MAP: Record<string, string> = {
+  flight: '✈️', hotel: '🏨', activity: '🎯', car: '🚗',
+  insurance: '🏥', visa: '🛂', transfer: '🚉',
+};
+
+function TicketCardBooking({ item, tripId }: { item: BookingItem; tripId: string }) {
+  const confirmCode = item.confirmation?.code ?? '—';
+  const canNavigate = item.type !== 'visa' && item.type !== 'insurance';
+
+  return (
+    <Pressable
+      style={({ pressed }) => [ticketStyles.card, pressed && canNavigate && { opacity: 0.85 }]}
+      onPress={() => canNavigate && router.push(`/trip/booking-detail?tripId=${tripId}&bookingKey=${item.id}`)}
+      accessibilityRole={canNavigate ? 'button' : undefined}
+    >
+      <View style={ticketStyles.header}>
+        <Text style={ticketStyles.emoji}>{BOOKING_EMOJI_MAP[item.type] ?? '📋'}</Text>
+        <View style={ticketStyles.headerInfo}>
+          <Text style={ticketStyles.title}>{item.title}</Text>
+          <Text style={ticketStyles.subtitle}>{item.provider}</Text>
+        </View>
+      </View>
+      <Divider />
+      <View style={ticketStyles.body}>
+        <View style={ticketStyles.metaBlock}>
+          {item.type === 'flight' && item.flight && (
+            <InfoRow label="Rotta" value={`${item.flight.origin} → ${item.flight.destination}`} />
+          )}
+          {item.timing.startDate && (
+            <InfoRow
+              label="Data"
+              value={`${new Date(item.timing.startDate + 'T00:00').toLocaleDateString('it-IT', { day: 'numeric', month: 'short', year: 'numeric' })}${item.timing.startTime ? ` · ${item.timing.startTime}` : ''}`}
+            />
+          )}
+          <InfoRow label="Codice conferma" value={confirmCode} />
+          {canNavigate && <Text style={[ticketStyles.subtitle, { color: Colors.teal, marginTop: 2 }]}>Tocca per dettagli →</Text>}
+        </View>
+        <QRBlock code={confirmCode} />
+      </View>
+    </Pressable>
+  );
+}
+
+// ─── Refund row for BookingItem (with deadline semaphore) ─────────────────────
+
+function refundSemaphore(item: BookingItem): { emoji: '🟢' | '🟡' | '🔴'; label: string; color: string } {
+  if (!item.refund.refundable) return { emoji: '🔴', label: 'Non rimborsabile', color: '#dc2626' };
+  const deadline = item.refund.fullRefundDeadline ?? item.refund.partialRefundDeadline ?? null;
+  if (!deadline) return { emoji: '🟢', label: 'Rimborsabile', color: '#22a06b' };
+  const daysLeft = Math.floor((new Date(deadline).getTime() - Date.now()) / 86_400_000);
+  if (daysLeft > 7) return { emoji: '🟢', label: `Rimborsabile · ${daysLeft} giorni rimasti`, color: '#22a06b' };
+  if (daysLeft >= 2) return { emoji: '🟡', label: `⚠️ Scade tra ${daysLeft} giorni`, color: '#d97706' };
+  if (daysLeft >= 0) return { emoji: '🔴', label: `🚨 Scade tra ${daysLeft} ${daysLeft === 1 ? 'giorno' : 'giorni'}`, color: '#dc2626' };
+  return { emoji: '🔴', label: 'Scaduto', color: '#dc2626' };
+}
+
+function RefundRowBooking({ item }: { item: BookingItem }) {
+  const sem = refundSemaphore(item);
+  return (
+    <View style={refundStyles.row}>
+      <Text style={refundStyles.emoji}>{sem.emoji}</Text>
+      <View style={refundStyles.info}>
+        <View style={refundStyles.titleRow}>
+          <Text style={refundStyles.itemTitle}>{item.title}</Text>
+          <Text style={[refundStyles.policyLabel, { color: sem.color }]}>{item.refund.refundable ? 'Rimborsabile' : 'Non rimborsabile'}</Text>
+        </View>
+        <Text style={refundStyles.detail}>{item.refund.description}</Text>
+        <Text style={[refundStyles.deadline, { color: sem.color }]}>⏰ {sem.label}</Text>
+      </View>
+    </View>
+  );
+}
+
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function DocsScreen() {
@@ -288,6 +365,14 @@ export default function DocsScreen() {
   const storeTrips = useAppStore((s) => s.trips);
   const activeTrip = storeTrips.length > 0 ? storeTrips[0] : mockTokyoTrip;
 
+  const useNewFormat = activeTrip.bookings && activeTrip.bookings.length > 0;
+
+  // New format
+  const bookingTickets = useNewFormat ? activeTrip.bookings!.filter((b) => b.type !== 'insurance' && b.type !== 'visa') : [];
+  const bookingRefunds = useNewFormat ? activeTrip.bookings!.filter((b) => b.type !== 'visa') : [];
+  const bookingInsurance = useNewFormat ? activeTrip.bookings!.find((b) => b.type === 'insurance') : undefined;
+
+  // Old format fallback
   const tickets = activeTrip.items.filter((i) => i.type !== 'insurance');
   const refundItems = activeTrip.items.filter((i) => i.refundPolicy);
   const insurance = activeTrip.items.find((i) => i.type === 'insurance');
@@ -307,17 +392,23 @@ export default function DocsScreen() {
       >
         {/* 🎫 Biglietti e conferme */}
         <DocSection title="Biglietti e conferme" emoji="🎫" defaultOpen>
-          {tickets.map((item) => (
-            <TicketCard key={item.id} item={item} />
-          ))}
+          {useNewFormat ? (
+            bookingTickets.length > 0
+              ? bookingTickets.map((item) => <TicketCardBooking key={item.id} item={item} tripId={activeTrip.id} />)
+              : <Text style={styles.emptyText}>Nessun biglietto disponibile.</Text>
+          ) : (
+            tickets.map((item) => <TicketCard key={item.id} item={item} />)
+          )}
         </DocSection>
 
         {/* 💸 Refund Policy */}
         <DocSection title="Politiche di rimborso" emoji="💸">
-          {refundItems.length > 0 ? (
-            refundItems.map((item) => (
-              <RefundRow key={item.id} item={item} />
-            ))
+          {useNewFormat ? (
+            bookingRefunds.length > 0
+              ? bookingRefunds.map((item) => <RefundRowBooking key={item.id} item={item} />)
+              : <Text style={styles.emptyText}>Nessuna politica di rimborso disponibile.</Text>
+          ) : refundItems.length > 0 ? (
+            refundItems.map((item) => <RefundRow key={item.id} item={item} />)
           ) : (
             <Text style={styles.emptyText}>Nessuna politica di rimborso disponibile.</Text>
           )}
@@ -325,7 +416,20 @@ export default function DocsScreen() {
 
         {/* 🏥 Assicurazione */}
         <DocSection title="Assicurazione" emoji="🏥">
-          {insurance ? (
+          {useNewFormat ? (
+            bookingInsurance ? (
+              <View style={styles.insuranceBlock}>
+                <InfoRow label="Provider" value={bookingInsurance.provider} />
+                <InfoRow label="Piano" value={bookingInsurance.insurance?.plan ?? '—'} />
+                <InfoRow label="Codice" value={bookingInsurance.confirmation?.code ?? '—'} />
+                <Divider />
+                <Text style={styles.coverageTitle}>Coperture</Text>
+                {(bookingInsurance.insurance?.coverage ?? []).map((c) => (
+                  <Text key={c} style={styles.coverageItem}>✓ {c}</Text>
+                ))}
+              </View>
+            ) : <Text style={styles.emptyText}>Nessuna assicurazione aggiunta.</Text>
+          ) : insurance ? (
             <View style={styles.insuranceBlock}>
               <InfoRow label="Provider" value={insurance.insuranceProvider ?? 'Qover'} />
               <InfoRow label="N° polizza" value={insurance.confirmCode} />
@@ -357,11 +461,15 @@ export default function DocsScreen() {
 
         {/* 🧾 Ricevute */}
         <DocSection title="Ricevute" emoji="🧾">
-          {activeTrip.items.map((item) => (
+          {(useNewFormat ? activeTrip.bookings! : activeTrip.items).map((item) => (
             <View key={item.id} style={styles.receiptRow}>
               <View style={styles.receiptLeft}>
                 <Text style={styles.receiptTitle}>{item.title}</Text>
-                <Text style={styles.receiptCode}>{item.confirmCode}</Text>
+                <Text style={styles.receiptCode}>
+                  {useNewFormat
+                    ? ((item as BookingItem).confirmation?.code ?? (item as BookingItem).type)
+                    : (item as TripItem).confirmCode}
+                </Text>
               </View>
               <Text style={styles.receiptPrice}>{item.price.toLocaleString('it-IT')} €</Text>
             </View>
