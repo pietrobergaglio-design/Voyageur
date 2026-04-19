@@ -1,6 +1,6 @@
 import type { AIItinerary, AIMultiCityItinerary } from './ai-itinerary';
 import type { CityStop, TransportSuggestion } from './multi-city';
-import type { FlightDirectionGroup, CarOffer, InsurancePlan, VisaInfo } from './booking';
+import type { FlightDirectionGroup, CarOffer, InsurancePlan, VisaInfo, BookingItem } from './booking';
 
 export type TripStatus = 'draft' | 'booked' | 'active' | 'past';
 
@@ -49,4 +49,11 @@ export interface Trip {
   cityStops?: CityStop[];
   transportSuggestions?: TransportSuggestion[];
   multiCityItinerary?: AIMultiCityItinerary;
+
+  // Unified booking items (v2 data model — optional for backward compatibility)
+  bookings?: BookingItem[];
+
+  // Search params snapshot (for draft restore)
+  origin?: string;
+  originCode?: string;
 }
