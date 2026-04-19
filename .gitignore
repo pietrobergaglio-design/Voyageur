@@ -41,3 +41,11 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# build outputs
+ios/build/
+android/build/
+android/.gradle/
+
+# misc
+Voyageur/
