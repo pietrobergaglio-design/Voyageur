@@ -713,6 +713,7 @@ export default function SearchScreen() {
                           selected={selectedOutboundKey === g.key}
                           onSelect={() => setSelectedOutboundKey(g.key === selectedOutboundKey ? null : g.key)}
                           direction="outbound"
+                          offer={results?.flights.find((f) => g.offerIds.includes(f.id))}
                         />
                       ))}
                       {!showAllOutbound && outboundGroups.length > SECTION_DEFAULT && (
@@ -733,6 +734,7 @@ export default function SearchScreen() {
                               selected={selectedReturnKey === g.key}
                               onSelect={() => setSelectedReturnKey(g.key === selectedReturnKey ? null : g.key)}
                               direction="return"
+                              offer={results?.flights.find((f) => g.offerIds.includes(f.id))}
                             />
                           ))}
                           {!showAllReturn && returnGroups.length > SECTION_DEFAULT && (
