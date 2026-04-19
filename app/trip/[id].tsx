@@ -18,6 +18,8 @@ import { SLOT_RANGES, getSlotForHour, type SlotId } from '../../src/data/mockIti
 import { generateItinerary, generateMultiCityItinerary, APIKeyMissingError, type GenerateItineraryParams, type GenerateMultiCityItineraryParams } from '../../src/services/ai-itinerary';
 import { CitySectionHeader } from '../../src/components/trips/CitySectionHeader';
 import { TransferBanner } from '../../src/components/trips/TransferBanner';
+import { TripTabSwitcher, type TripTab } from '../../src/components/trips/TripTabSwitcher';
+import { BookingsTab } from '../../src/components/trips/BookingsTab';
 import { Toast } from '../../src/components/common/Toast';
 import type { TripItem, Trip } from '../../src/types/trip';
 import type { AIActivitySuggestion, AIItinerary, AIMultiCityItinerary } from '../../src/types/ai-itinerary';
@@ -713,6 +715,8 @@ export default function TripDetailScreen() {
 
   const updateTrip = useAppStore((s) => s.updateTrip);
 
+  const [activeTab, setActiveTab] = useState<TripTab>('itinerario');
+
   const [manualByDay, setManualByDay] = useState<Record<number, ManualEvent[]>>({});
   const [editing, setEditing] = useState<EditingState | null>(null);
   const [expandedSuggs, setExpandedSuggs] = useState<Set<string>>(new Set());
@@ -940,6 +944,9 @@ export default function TripDetailScreen() {
       checkOut: trip.checkOut ?? checkOut.toISOString(),
       travelers: trip.travelers,
       itemIds: trip.items.map((item) => ({ type: item.type, offerId: item.id.replace(`${item.type}-`, '') })),
+      isMultiCity: trip.isMultiCity,
+      cityStops: trip.cityStops,
+      transportSuggestions: trip.transportSuggestions,
     });
     router.replace('/(tabs)/search');
   }
@@ -977,6 +984,21 @@ export default function TripDetailScreen() {
 
   const draftBarHeight = isDraft ? 100 : 0;
 
+  const bookingCount = (() => {
+    let n = (trip.flightOutbound ? 1 : 0) + (trip.flightReturn ? 1 : 0)
+      + (trip.selectedCar ? 1 : 0)
+      + (trip.selectedInsurancePlan ? 1 : 0);
+    if (trip.isMultiCity && trip.cityStops) {
+      for (const s of trip.cityStops) {
+        if (s.selectedHotel) n += 1;
+        n += s.selectedActivities.length;
+      }
+    } else {
+      n += trip.items.filter((i) => i.type === 'hotel' || i.type === 'activity').length;
+    }
+    return n;
+  })();
+
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
       <View style={styles.header}>
@@ -998,7 +1020,13 @@ export default function TripDetailScreen() {
         )}
       </View>
 
-      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={insets.top + 56}>
+      <TripTabSwitcher active={activeTab} onChange={setActiveTab} bookingCount={bookingCount} />
+
+      {activeTab === 'prenotazioni' ? (
+        <BookingsTab trip={trip} isDraft={isDraft} />
+      ) : null}
+
+      <KeyboardAvoidingView style={[styles.flex, activeTab !== 'itinerario' && styles.hidden]} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={insets.top + 56}>
         <ScrollView
           contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + draftBarHeight + 80 }]}
           showsVerticalScrollIndicator={false}
@@ -1041,6 +1069,17 @@ export default function TripDetailScreen() {
                           <Text style={styles.dayLabel}>{day.dayLabel}</Text>
                           <Text style={styles.dateLabel}>{day.dateLabel}</Text>
                         </View>
+
+                        {day.bookings.length > 0 && (
+                          <Pressable
+                            style={({ pressed }) => [styles.dayBookingIndicator, pressed && { opacity: 0.7 }]}
+                            onPress={() => setActiveTab('prenotazioni')}
+                          >
+                            <Text style={styles.dayBookingIndicatorText}>
+                              📌 {day.bookings.length} {day.bookings.length === 1 ? 'prenotazione' : 'prenotazioni'} oggi · Vedi →
+                            </Text>
+                          </Pressable>
+                        )}
 
                         {allDayBookings.map((b) => <BookingCard key={b.id} b={b} isDraft={isDraft} />)}
 
@@ -1088,6 +1127,17 @@ export default function TripDetailScreen() {
                   <Text style={styles.dayLabel}>{day.dayLabel}</Text>
                   <Text style={styles.dateLabel}>{day.dateLabel}</Text>
                 </View>
+
+                {day.bookings.length > 0 && (
+                  <Pressable
+                    style={({ pressed }) => [styles.dayBookingIndicator, pressed && { opacity: 0.7 }]}
+                    onPress={() => setActiveTab('prenotazioni')}
+                  >
+                    <Text style={styles.dayBookingIndicatorText}>
+                      📌 {day.bookings.length} {day.bookings.length === 1 ? 'prenotazione' : 'prenotazioni'} oggi · Vedi →
+                    </Text>
+                  </Pressable>
+                )}
 
                 {allDayBookings.map((b) => <BookingCard key={b.id} b={b} isDraft={isDraft} />)}
 
@@ -1226,4 +1276,18 @@ const styles = StyleSheet.create({
   draftBtnPressed: { opacity: 0.8 },
   notFound: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   notFoundText: { fontFamily: FontFamily.body, fontSize: FontSize.md, color: Colors.text.muted },
+  hidden: { display: 'none' },
+  dayBookingIndicator: {
+    backgroundColor: Colors.teal + '10',
+    borderRadius: Radius.sm,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: Colors.teal + '30',
+  },
+  dayBookingIndicatorText: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: FontSize.xs,
+    color: Colors.teal,
+  },
 });

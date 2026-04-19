@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View, Text, Pressable, FlatList, ActivityIndicator, StyleSheet,
 } from 'react-native';
@@ -13,6 +13,11 @@ import { searchHotels } from '../../src/services/booking';
 import { searchActivities } from '../../src/services/activities';
 import { HotelCard } from '../../src/components/search/HotelCard';
 import { ActivityCard } from '../../src/components/search/ActivityCard';
+import { FilterBar } from '../../src/components/search/FilterBar';
+import {
+  extractHotelBrands, extractActivityProviders,
+  filterHotels, filterActivities,
+} from '../../src/utils/filter-helpers';
 import type { HotelOffer, ActivityOffer } from '../../src/types/booking';
 import { Colors, FontFamily, FontSize, Spacing, Radius } from '../../src/constants/theme';
 
@@ -34,6 +39,10 @@ export default function CityPage() {
   const [activities, setActivities] = useState<ActivityOffer[]>([]);
   const [hotelsLoading, setHotelsLoading] = useState(false);
   const [activitiesLoading, setActivitiesLoading] = useState(false);
+  const [hotelQuery, setHotelQuery] = useState('');
+  const [hotelFilters, setHotelFilters] = useState<string[]>([]);
+  const [activityQuery, setActivityQuery] = useState('');
+  const [activityFilters, setActivityFilters] = useState<string[]>([]);
 
   if (!cityStop) {
     return (
@@ -91,6 +100,17 @@ export default function CityPage() {
     fetchHotels();
     fetchActivities();
   }, [fetchHotels, fetchActivities]);
+
+  const hotelFilterOptions = useMemo(() => extractHotelBrands(hotels), [hotels]);
+  const activityFilterOptions = useMemo(() => extractActivityProviders(activities), [activities]);
+  const filteredHotels = useMemo(
+    () => filterHotels(hotels, hotelQuery, hotelFilters),
+    [hotels, hotelQuery, hotelFilters],
+  );
+  const filteredActivities = useMemo(
+    () => filterActivities(activities, activityQuery, activityFilters),
+    [activities, activityQuery, activityFilters],
+  );
 
   const selectedActivityIds = cityStop.selectedActivities.map((a) => a.id);
 
@@ -164,11 +184,25 @@ export default function CityPage() {
           </View>
         ) : (
           <FlatList
-            data={hotels}
+            data={filteredHotels}
             keyExtractor={(h) => h.id}
             contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + 80 }]}
             ListHeaderComponent={
-              <Text style={styles.sectionTitle}>Hotel a {cityStop.name}</Text>
+              <View style={styles.listHeader}>
+                <Text style={styles.sectionTitle}>Hotel a {cityStop.name}</Text>
+                {hotels.length > 0 && (
+                  <FilterBar
+                    query={hotelQuery}
+                    onQueryChange={setHotelQuery}
+                    options={hotelFilterOptions}
+                    activeFilters={hotelFilters}
+                    onFiltersChange={setHotelFilters}
+                    totalCount={hotels.length}
+                    filteredCount={filteredHotels.length}
+                    searchPlaceholder="Cerca hotel..."
+                  />
+                )}
+              </View>
             }
             ListEmptyComponent={
               <View style={styles.emptyState}>
@@ -193,11 +227,25 @@ export default function CityPage() {
           </View>
         ) : (
           <FlatList
-            data={activities}
+            data={filteredActivities}
             keyExtractor={(a) => a.id}
             contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + 80 }]}
             ListHeaderComponent={
-              <Text style={styles.sectionTitle}>Attività a {cityStop.name}</Text>
+              <View style={styles.listHeader}>
+                <Text style={styles.sectionTitle}>Attività a {cityStop.name}</Text>
+                {activities.length > 0 && (
+                  <FilterBar
+                    query={activityQuery}
+                    onQueryChange={setActivityQuery}
+                    options={activityFilterOptions}
+                    activeFilters={activityFilters}
+                    onFiltersChange={setActivityFilters}
+                    totalCount={activities.length}
+                    filteredCount={filteredActivities.length}
+                    searchPlaceholder="Cerca attività..."
+                  />
+                )}
+              </View>
             }
             ListEmptyComponent={
               <View style={styles.emptyState}>
@@ -312,11 +360,14 @@ const styles = StyleSheet.create({
     padding: Spacing.lg,
     gap: Spacing.sm,
   },
+  listHeader: {
+    gap: Spacing.sm,
+    marginBottom: Spacing.sm,
+  },
   sectionTitle: {
     fontFamily: FontFamily.bodySemiBold,
     fontSize: FontSize.lg,
     color: Colors.text.primary,
-    marginBottom: Spacing.sm,
   },
   emptyState: {
     paddingVertical: Spacing.xl,

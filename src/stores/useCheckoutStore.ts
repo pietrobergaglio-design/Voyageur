@@ -30,6 +30,9 @@ export interface PendingDraftRestore {
   checkOut: string;
   travelers: number;
   itemIds: Array<{ type: CartItemType; offerId: string }>;
+  isMultiCity?: boolean;
+  cityStops?: CityStop[];
+  transportSuggestions?: TransportSuggestion[];
 }
 
 interface CheckoutState {

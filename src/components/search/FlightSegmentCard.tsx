@@ -1,18 +1,8 @@
 import { View, Text, Pressable, StyleSheet } from 'react-native';
-import type { FlightSegment } from '../../types/booking';
+import type { FlightDirectionGroup } from '../../types/booking';
 import { Colors, FontFamily, FontSize, Spacing, Radius } from '../../constants/theme';
 
-export interface FlightDirectionGroup {
-  key: string;
-  airline: string;
-  segments: FlightSegment[];
-  stops: number;
-  durationMinutes: number;
-  departureAt: string;
-  arrivalAt: string;
-  estimatedPrice: number;
-  offerIds: string[];
-}
+export type { FlightDirectionGroup };
 
 interface Props {
   group: FlightDirectionGroup;

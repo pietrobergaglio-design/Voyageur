@@ -1,5 +1,6 @@
 import type { AIItinerary, AIMultiCityItinerary } from './ai-itinerary';
 import type { CityStop, TransportSuggestion } from './multi-city';
+import type { FlightDirectionGroup, CarOffer, InsurancePlan, VisaInfo } from './booking';
 
 export type TripStatus = 'draft' | 'booked' | 'active' | 'past';
 
@@ -37,6 +38,13 @@ export interface Trip {
   createdAt: string;
   bookedAt?: string;
   itinerary?: AIItinerary;
+  // Typed offer snapshots (populated on save/book)
+  flightOutbound?: FlightDirectionGroup;
+  flightReturn?: FlightDirectionGroup;
+  selectedCar?: CarOffer;
+  selectedInsurancePlan?: InsurancePlan;
+  visaInfo?: VisaInfo;
+  // Multi-city
   isMultiCity?: boolean;
   cityStops?: CityStop[];
   transportSuggestions?: TransportSuggestion[];
