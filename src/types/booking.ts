@@ -233,3 +233,140 @@ export interface CartState {
   totalPrice: number;
   currency: Currency;
 }
+
+// ─── Unified BookingItem ───────────────────────────────────────────────────────
+
+export type BookingType = 'flight' | 'hotel' | 'activity' | 'car' | 'insurance' | 'visa' | 'transfer';
+export type BookingStatus = 'selected' | 'booked' | 'cancelled';
+export type TimeOfDay = 'morning' | 'afternoon' | 'evening' | 'night';
+export type BaggageLevel = 'full' | 'cabin' | 'none';
+
+export interface BookingItem {
+  id: string;
+  type: BookingType;
+  status: BookingStatus;
+
+  // Core presentation
+  title: string;
+  provider: string;
+  price: number;
+  currency: string;
+  photos: string[];
+  description?: string;
+  rating?: number;
+  reviewCount?: number;
+
+  // Timing (essential for itinerary)
+  timing: {
+    startDate: string;            // ISO date "YYYY-MM-DD"
+    endDate?: string;
+    startTime?: string;           // "HH:MM"
+    endTime?: string;
+    dayOffset?: number;           // +1 if arrival is day after departure
+    timeOfDay?: TimeOfDay;
+    duration?: string;            // human label "2h10", "Full day"
+  };
+
+  // Flight-specific
+  flight?: {
+    airline: string;
+    flightNumber: string;
+    origin: string;               // IATA code
+    originName: string;
+    destination: string;
+    destinationName: string;
+    stops: {
+      location: string;           // IATA
+      locationName: string;
+      durationMin: number;
+    }[];
+    baggage: {
+      cabin: boolean;
+      checked: boolean;
+      description: string;        // "Bagaglio incluso" / "Solo mano"
+    };
+  };
+
+  // Hotel-specific
+  hotel?: {
+    address: string;
+    coordinates?: { lat: number; lng: number };
+    amenities: string[];
+    checkinTime: string;          // "15:00"
+    checkoutTime: string;         // "11:00"
+    roomType?: string;
+    nights: number;
+  };
+
+  // Activity-specific
+  activity?: {
+    meetingPoint?: string;
+    category?: string;
+    durationMin?: number;
+  };
+
+  // Car rental-specific
+  car?: {
+    company: string;
+    carType: string;
+    pickupLocation: string;
+    pickupTime: string;
+    returnLocation: string;
+    returnTime: string;
+  };
+
+  // Insurance-specific
+  insurance?: {
+    plan: 'Essential' | 'Plus' | 'Complete';
+    coverage: string[];
+    medicalLimit: number;
+  };
+
+  // Visa-specific
+  visa?: {
+    type: 'visa_free' | 'eta' | 'evisa' | 'embassy';
+    stayDays: number;
+  };
+
+  // Transfer between cities (multi-city)
+  transfer?: {
+    from: string;
+    to: string;
+    mode: 'train' | 'flight' | 'bus' | 'car';
+    modeLabel: string;            // "Shinkansen", "Frecciarossa"
+    durationMin: number;
+    priceEstimate: number;
+  };
+
+  // Refund policy (for Documents tab + semaphore badge)
+  refund: {
+    refundable: boolean;
+    fullRefundDeadline?: string;          // ISO — 100% refund before this date
+    partialRefundDeadline?: string;       // ISO — partial refund before this date
+    partialRefundPercentage?: number;     // e.g. 50
+    description: string;                  // user-friendly text
+  };
+
+  // Operational data (Documents tab)
+  confirmation?: {
+    code?: string;
+    qrData?: string;
+    barcodeData?: string;
+    pdfUrl?: string;
+    emailSentTo?: string;
+    notes?: string;
+  };
+
+  // City reference for multi-city (null = trip-level like intercontinental flight, insurance)
+  cityId?: string;
+
+  // Original API payload for debugging
+  rawData?: unknown;
+}
+
+export interface BookingSummary {
+  total: number;
+  currency: string;
+  byType: Partial<Record<BookingType, { count: number; total: number }>>;
+  byCity?: Record<string, { count: number; total: number }>;
+}
