@@ -823,79 +823,64 @@ export default function SearchScreen() {
               )}
             </ResultSection>
 
-            {/* 🎯 Attività */}
-            <ResultSection
-              title="🎯 Attività"
-              totalCount={multiCityMode ? (totalSelectedActivities > 0 ? totalSelectedActivities : cityStops.length) : (isActivitiesLoading ? 0 : filteredActivities.length)}
-              visibleCount={multiCityMode ? cityStops.length : (isActivitiesLoading ? undefined : Math.min(SECTION_DEFAULT, filteredActivities.length))}
-            >
-              {multiCityMode ? (
-                <>
-                  {cityStops.map((stop, idx) => (
-                    <View key={stop.id}>
-                      <CityPanel stop={stop} onPress={() => router.push(`/city/${stop.id}`)} />
-                      {idx < cityStops.length - 1 && (() => {
-                        const t = transportSuggestions.find((ts) => ts.from.toLowerCase() === stop.name.toLowerCase());
-                        if (!t) return null;
-                        return (
-                          <View style={styles.transportBanner}>
-                            <Text style={styles.transportBannerText}>🚄 {t.from} → {t.to} · {t.duration} · ~€{t.price_eur}</Text>
-                          </View>
-                        );
-                      })()}
+            {/* 🎯 Attività — hidden in multi-city (CityPanels in Hotel section already handle both hotel + activity selection) */}
+            {!multiCityMode && (
+              <ResultSection
+                title="🎯 Attività"
+                totalCount={isActivitiesLoading ? 0 : filteredActivities.length}
+                visibleCount={isActivitiesLoading ? undefined : Math.min(SECTION_DEFAULT, filteredActivities.length)}
+              >
+                {isActivitiesLoading ? (
+                  <>
+                    <View style={[skStyles.card, { padding: 0 }]}>
+                      <View style={[skStyles.photoBlock, { height: 140 }]} />
+                      <View style={{ padding: Spacing.md, gap: Spacing.sm }}>
+                        <View style={[skStyles.bar, { width: '70%', height: 14 }]} />
+                        <View style={[skStyles.bar, { width: '40%', height: 11 }]} />
+                      </View>
                     </View>
-                  ))}
-                </>
-              ) : isActivitiesLoading ? (
-                <>
-                  <View style={[skStyles.card, { padding: 0 }]}>
-                    <View style={[skStyles.photoBlock, { height: 140 }]} />
-                    <View style={{ padding: Spacing.md, gap: Spacing.sm }}>
-                      <View style={[skStyles.bar, { width: '70%', height: 14 }]} />
-                      <View style={[skStyles.bar, { width: '40%', height: 11 }]} />
+                    <View style={[skStyles.card, { padding: 0 }]}>
+                      <View style={[skStyles.photoBlock, { height: 140 }]} />
+                      <View style={{ padding: Spacing.md, gap: Spacing.sm }}>
+                        <View style={[skStyles.bar, { width: '60%', height: 14 }]} />
+                        <View style={[skStyles.bar, { width: '35%', height: 11 }]} />
+                      </View>
                     </View>
+                  </>
+                ) : activitiesUnavailable ? (
+                  <View style={styles.emptyRow}>
+                    <Text style={styles.emptyRowText}>🔧 Attività temporaneamente non disponibili</Text>
+                    <Text style={[styles.emptyRowText, { fontSize: 12, marginTop: 4, opacity: 0.6 }]}>Quota API esaurita — riprova domani</Text>
                   </View>
-                  <View style={[skStyles.card, { padding: 0 }]}>
-                    <View style={[skStyles.photoBlock, { height: 140 }]} />
-                    <View style={{ padding: Spacing.md, gap: Spacing.sm }}>
-                      <View style={[skStyles.bar, { width: '60%', height: 14 }]} />
-                      <View style={[skStyles.bar, { width: '35%', height: 11 }]} />
-                    </View>
+                ) : results.activities.length === 0 ? (
+                  <View style={styles.emptyRow}>
+                    <Text style={styles.emptyRowText}>Nessuna attività trovata</Text>
                   </View>
-                </>
-              ) : activitiesUnavailable ? (
-                <View style={styles.emptyRow}>
-                  <Text style={styles.emptyRowText}>🔧 Attività temporaneamente non disponibili</Text>
-                  <Text style={[styles.emptyRowText, { fontSize: 12, marginTop: 4, opacity: 0.6 }]}>Quota API esaurita — riprova domani</Text>
-                </View>
-              ) : results.activities.length === 0 ? (
-                <View style={styles.emptyRow}>
-                  <Text style={styles.emptyRowText}>Nessuna attività trovata</Text>
-                </View>
-              ) : (
-                <>
-                  <FilterBar
-                    query={activityQuery}
-                    onQueryChange={setActivityQuery}
-                    options={activityFilterOptions}
-                    activeFilters={activityFilters}
-                    onFiltersChange={setActivityFilters}
-                    totalCount={results.activities.length}
-                    filteredCount={filteredActivities.length}
-                    searchPlaceholder="Cerca attività, tour, esperienze..."
-                  />
-                  {filteredActivities.slice(0, showAllActivities ? filteredActivities.length : SECTION_DEFAULT).map((a) => (
-                    <ActivityCard key={a.id} activity={a} selected={selectedActivities.includes(a.id)} onSelect={() => toggleActivity(a.id)} />
-                  ))}
-                  {!showAllActivities && filteredActivities.length > SECTION_DEFAULT && (
-                    <ShowMoreButton hiddenCount={filteredActivities.length - SECTION_DEFAULT} onPress={() => toggleShowMore(setShowAllActivities, true)} />
-                  )}
-                  {showAllActivities && filteredActivities.length > SECTION_DEFAULT && (
-                    <ShowLessButton onPress={() => toggleShowMore(setShowAllActivities, false)} />
-                  )}
-                </>
-              )}
-            </ResultSection>
+                ) : (
+                  <>
+                    <FilterBar
+                      query={activityQuery}
+                      onQueryChange={setActivityQuery}
+                      options={activityFilterOptions}
+                      activeFilters={activityFilters}
+                      onFiltersChange={setActivityFilters}
+                      totalCount={results.activities.length}
+                      filteredCount={filteredActivities.length}
+                      searchPlaceholder="Cerca attività, tour, esperienze..."
+                    />
+                    {filteredActivities.slice(0, showAllActivities ? filteredActivities.length : SECTION_DEFAULT).map((a) => (
+                      <ActivityCard key={a.id} activity={a} selected={selectedActivities.includes(a.id)} onSelect={() => toggleActivity(a.id)} />
+                    ))}
+                    {!showAllActivities && filteredActivities.length > SECTION_DEFAULT && (
+                      <ShowMoreButton hiddenCount={filteredActivities.length - SECTION_DEFAULT} onPress={() => toggleShowMore(setShowAllActivities, true)} />
+                    )}
+                    {showAllActivities && filteredActivities.length > SECTION_DEFAULT && (
+                      <ShowLessButton onPress={() => toggleShowMore(setShowAllActivities, false)} />
+                    )}
+                  </>
+                )}
+              </ResultSection>
+            )}
 
             {/* 🚗 Auto */}
             {(() => {
