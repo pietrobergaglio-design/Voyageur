@@ -74,16 +74,22 @@ function parsePropertyType(label: string, stars: number, highlightNames: string[
     lower.includes('guesthouse') ||
     lower.includes('guest house') ||
     lower.includes('pensione') ||
-    lower.includes('affittacamere')
+    lower.includes('affittacamere') ||
+    lower.includes('ryokan') ||
+    lower.includes('minshuku') ||
+    lower.includes('minpaku') ||
+    lower.includes('farmhouse') ||
+    lower.includes('agriturismo')
   ) return 'guesthouse';
   if (
     lower.includes('apartment') ||
     lower.includes('appartamento') ||
     lower.includes('studio apartment') ||
-    lower.includes('flat') ||
-    stars === 0
+    lower.includes('flat')
   ) return 'apartment';
 
+  // stars === 0 alone is not reliable for apartment classification —
+  // unrated Japanese properties (ryokan, etc.) default to hotel
   return 'hotel';
 }
 
@@ -182,6 +188,12 @@ function calcHotelMatchScore(
       pts = 20;
     } else if ((want.includes('guesthouse') || want.includes('affittacamere') || want.includes('pensione')) && (propertyType === 'guesthouse' || propertyType === 'bnb')) {
       pts = 20;
+    } else if (want === 'unique' && (propertyType === 'guesthouse' || propertyType === 'bnb' || propertyType === 'boutique')) {
+      // "unique" preference covers ryokan, treehouse, agriturismo, etc.
+      pts = 20;
+    } else if (want === 'camping' && propertyType === 'hostel') {
+      // closest match for camping when no specific camping property type exists
+      pts = 10;
     }
     if (pts > typePts) typePts = pts;
   }

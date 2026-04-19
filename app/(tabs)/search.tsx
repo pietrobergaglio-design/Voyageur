@@ -26,6 +26,11 @@ import { InsuranceCard } from '../../src/components/search/InsuranceCard';
 import { VisaCard } from '../../src/components/search/VisaCard';
 import { CartBar } from '../../src/components/search/CartBar';
 import { ShowMoreButton, ShowLessButton } from '../../src/components/search/ShowMoreButton';
+import { FilterBar } from '../../src/components/search/FilterBar';
+import {
+  extractHotelBrands, extractActivityProviders, extractCarCompanies, extractInsuranceBrands,
+  filterHotels, filterActivities, filterCars, filterInsurance,
+} from '../../src/utils/filter-helpers';
 
 import { getMockResults, DEFAULT_SEARCH_PARAMS } from '../../src/data/mockSearch';
 import { searchFlights, DuffelError } from '../../src/services/duffel';
@@ -327,6 +332,16 @@ export default function SearchScreen() {
   const [showAllActivities, setShowAllActivities] = useState(false);
   const [showAllInsurance, setShowAllInsurance] = useState(false);
 
+  // Filter state
+  const [hotelQuery, setHotelQuery] = useState('');
+  const [hotelFilters, setHotelFilters] = useState<string[]>([]);
+  const [activityQuery, setActivityQuery] = useState('');
+  const [activityFilters, setActivityFilters] = useState<string[]>([]);
+  const [carQuery, setCarQuery] = useState('');
+  const [carFilters, setCarFilters] = useState<string[]>([]);
+  const [insuranceQuery, setInsuranceQuery] = useState('');
+  const [insuranceFilters, setInsuranceFilters] = useState<string[]>([]);
+
   const toggleShowMore = (setter: (v: boolean) => void, next: boolean) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setter(next);
@@ -365,6 +380,11 @@ export default function SearchScreen() {
       setResults(r);
       setHasSearched(true);
 
+      if (restore.isMultiCity && restore.cityStops) {
+        setCityStops(restore.cityStops, restore.transportSuggestions);
+        setMultiCityMode(true);
+      }
+
       for (const { type, offerId } of restore.itemIds) {
         if (type === 'flight') setSelectedFlight(offerId);
         else if (type === 'hotel') setSelectedHotel(offerId);
@@ -397,6 +417,10 @@ export default function SearchScreen() {
     setShowAllCars(false);
     setShowAllActivities(false);
     setShowAllInsurance(false);
+    setHotelQuery(''); setHotelFilters([]);
+    setActivityQuery(''); setActivityFilters([]);
+    setCarQuery(''); setCarFilters([]);
+    setInsuranceQuery(''); setInsuranceFilters([]);
 
     // Generate cars + visa immediately (sync/near-sync)
     const mockBase = getMockResults(params);
@@ -494,6 +518,42 @@ export default function SearchScreen() {
     setSelectedFlight(best?.id ?? null);
   }, [selectedOutboundKey, selectedReturnKey, results?.flights]);
 
+  // Filter option memos
+  const hotelFilterOptions = useMemo(
+    () => extractHotelBrands(results?.hotels ?? []),
+    [results?.hotels],
+  );
+  const activityFilterOptions = useMemo(
+    () => extractActivityProviders(results?.activities ?? []),
+    [results?.activities],
+  );
+  const carFilterOptions = useMemo(
+    () => extractCarCompanies(results?.cars ?? []),
+    [results?.cars],
+  );
+  const insuranceFilterOptions = useMemo(
+    () => extractInsuranceBrands(results?.insurance ?? []),
+    [results?.insurance],
+  );
+
+  // Filtered result memos
+  const filteredHotels = useMemo(
+    () => filterHotels(results?.hotels ?? [], hotelQuery, hotelFilters),
+    [results?.hotels, hotelQuery, hotelFilters],
+  );
+  const filteredActivities = useMemo(
+    () => filterActivities(results?.activities ?? [], activityQuery, activityFilters),
+    [results?.activities, activityQuery, activityFilters],
+  );
+  const filteredCars = useMemo(
+    () => filterCars(results?.cars ?? [], carQuery, carFilters),
+    [results?.cars, carQuery, carFilters],
+  );
+  const filteredInsurance = useMemo(
+    () => filterInsurance(results?.insurance ?? [], insuranceQuery, insuranceFilters),
+    [results?.insurance, insuranceQuery, insuranceFilters],
+  );
+
   const nights = nightsBetween(params.checkIn, params.checkOut);
   const hasCart = cartItems.length > 0;
 
@@ -529,6 +589,19 @@ export default function SearchScreen() {
       items: draftItems,
       bookingRef: '',
       createdAt: new Date().toISOString(),
+      flightOutbound: selectedOutboundKey
+        ? outboundGroups.find((g) => g.key === selectedOutboundKey)
+        : undefined,
+      flightReturn: selectedReturnKey
+        ? returnGroups.find((g) => g.key === selectedReturnKey)
+        : undefined,
+      selectedCar: selectedCar
+        ? results.cars.find((c) => c.id === selectedCar)
+        : undefined,
+      selectedInsurancePlan: selectedInsurance
+        ? results.insurance.find((i) => i.id === selectedInsurance)
+        : undefined,
+      visaInfo: results.visa ?? undefined,
       isMultiCity: multiCityMode || undefined,
       cityStops: multiCityMode ? cityStops : undefined,
       transportSuggestions: multiCityMode ? transportSuggestions : undefined,
@@ -653,8 +726,8 @@ export default function SearchScreen() {
             {/* 🏨 Hotel */}
             <ResultSection
               title="🏨 Hotel"
-              totalCount={multiCityMode ? cityStops.length : (isHotelsLoading ? 0 : results.hotels.length)}
-              visibleCount={multiCityMode ? cityStops.length : (isHotelsLoading ? undefined : Math.min(SECTION_DEFAULT, results.hotels.length))}
+              totalCount={multiCityMode ? cityStops.length : (isHotelsLoading ? 0 : filteredHotels.length)}
+              visibleCount={multiCityMode ? cityStops.length : (isHotelsLoading ? undefined : Math.min(SECTION_DEFAULT, filteredHotels.length))}
               rightAction={hasSearched && !isHotelsLoading ? (
                 <Pressable
                   style={({ pressed }) => [
@@ -663,11 +736,7 @@ export default function SearchScreen() {
                     pressed && { opacity: 0.75 },
                   ]}
                   onPress={() => {
-                    if (multiCityMode) {
-                      clearMultiCity();
-                    } else {
-                      setShowMultiCityPanel(true);
-                    }
+                    if (multiCityMode) { clearMultiCity(); } else { setShowMultiCityPanel(true); }
                   }}
                 >
                   <Text style={[styles.multiCityChipText, multiCityMode && styles.multiCityChipTextActive]}>
@@ -680,21 +749,13 @@ export default function SearchScreen() {
                 <>
                   {cityStops.map((stop, idx) => (
                     <View key={stop.id}>
-                      <CityPanel
-                        stop={stop}
-                        onPress={() => router.push(`/city/${stop.id}`)}
-                      />
-                      {/* Transport banner between cities */}
+                      <CityPanel stop={stop} onPress={() => router.push(`/city/${stop.id}`)} />
                       {idx < cityStops.length - 1 && (() => {
-                        const t = transportSuggestions.find(
-                          (ts) => ts.from.toLowerCase() === stop.name.toLowerCase(),
-                        );
+                        const t = transportSuggestions.find((ts) => ts.from.toLowerCase() === stop.name.toLowerCase());
                         if (!t) return null;
                         return (
                           <View style={styles.transportBanner}>
-                            <Text style={styles.transportBannerText}>
-                              🚄 {t.from} → {t.to} · {t.duration} · ~€{t.price_eur}
-                            </Text>
+                            <Text style={styles.transportBannerText}>🚄 {t.from} → {t.to} · {t.duration} · ~€{t.price_eur}</Text>
                           </View>
                         );
                       })()}
@@ -712,13 +773,23 @@ export default function SearchScreen() {
                 </View>
               ) : (
                 <>
-                  {results.hotels.slice(0, showAllHotels ? results.hotels.length : SECTION_DEFAULT).map((h) => (
+                  <FilterBar
+                    query={hotelQuery}
+                    onQueryChange={setHotelQuery}
+                    options={hotelFilterOptions}
+                    activeFilters={hotelFilters}
+                    onFiltersChange={setHotelFilters}
+                    totalCount={results.hotels.length}
+                    filteredCount={filteredHotels.length}
+                    searchPlaceholder="Cerca per nome hotel o zona..."
+                  />
+                  {filteredHotels.slice(0, showAllHotels ? filteredHotels.length : SECTION_DEFAULT).map((h) => (
                     <HotelCard key={h.id} hotel={h} nights={nights} selected={selectedHotel === h.id} onSelect={() => setSelectedHotel(h.id === selectedHotel ? null : h.id)} />
                   ))}
-                  {!showAllHotels && results.hotels.length > SECTION_DEFAULT && (
-                    <ShowMoreButton hiddenCount={results.hotels.length - SECTION_DEFAULT} onPress={() => toggleShowMore(setShowAllHotels, true)} />
+                  {!showAllHotels && filteredHotels.length > SECTION_DEFAULT && (
+                    <ShowMoreButton hiddenCount={filteredHotels.length - SECTION_DEFAULT} onPress={() => toggleShowMore(setShowAllHotels, true)} />
                   )}
-                  {showAllHotels && results.hotels.length > SECTION_DEFAULT && (
+                  {showAllHotels && filteredHotels.length > SECTION_DEFAULT && (
                     <ShowLessButton onPress={() => toggleShowMore(setShowAllHotels, false)} />
                   )}
                   <View style={styles.poweredByRow}>
@@ -731,44 +802,34 @@ export default function SearchScreen() {
               )}
             </ResultSection>
 
-            {/* 🚗 Auto */}
-            {(() => {
-              const total = results.cars.length;
-              const visible = showAllCars ? total : Math.min(SECTION_DEFAULT, total);
-              const slice = results.cars.slice(0, visible);
-              return (
-                <ResultSection
-                  title="🚗 Auto"
-                  totalCount={total}
-                  visibleCount={visible}
-                >
-                  {slice.map((c) => (
-                    <CarCard key={c.id} car={c} selected={selectedCar === c.id} onSelect={() => setSelectedCar(c.id === selectedCar ? null : c.id)} />
-                  ))}
-                  {!showAllCars && total > SECTION_DEFAULT && (
-                    <ShowMoreButton hiddenCount={total - SECTION_DEFAULT} onPress={() => toggleShowMore(setShowAllCars, true)} />
-                  )}
-                  {showAllCars && total > SECTION_DEFAULT && (
-                    <ShowLessButton onPress={() => toggleShowMore(setShowAllCars, false)} />
-                  )}
-                </ResultSection>
-              );
-            })()}
-
             {/* 🎯 Attività */}
+            {(() => {
+              const totalSelectedActivities = multiCityMode
+                ? cityStops.reduce((sum, s) => sum + s.selectedActivities.length, 0)
+                : 0;
+              return (
             <ResultSection
               title="🎯 Attività"
-              totalCount={multiCityMode ? cityStops.length : (isActivitiesLoading ? 0 : results.activities.length)}
-              visibleCount={multiCityMode ? cityStops.length : (isActivitiesLoading ? undefined : Math.min(SECTION_DEFAULT, results.activities.length))}
+              totalCount={multiCityMode ? (totalSelectedActivities > 0 ? totalSelectedActivities : cityStops.length) : (isActivitiesLoading ? 0 : filteredActivities.length)}
+              visibleCount={multiCityMode ? cityStops.length : (isActivitiesLoading ? undefined : Math.min(SECTION_DEFAULT, filteredActivities.length))}
             >
               {multiCityMode ? (
-                cityStops.map((stop) => (
-                  <CityPanel
-                    key={stop.id}
-                    stop={stop}
-                    onPress={() => router.push(`/city/${stop.id}`)}
-                  />
-                ))
+                <>
+                  {cityStops.map((stop, idx) => (
+                    <View key={stop.id}>
+                      <CityPanel stop={stop} onPress={() => router.push(`/city/${stop.id}`)} />
+                      {idx < cityStops.length - 1 && (() => {
+                        const t = transportSuggestions.find((ts) => ts.from.toLowerCase() === stop.name.toLowerCase());
+                        if (!t) return null;
+                        return (
+                          <View style={styles.transportBanner}>
+                            <Text style={styles.transportBannerText}>🚄 {t.from} → {t.to} · {t.duration} · ~€{t.price_eur}</Text>
+                          </View>
+                        );
+                      })()}
+                    </View>
+                  ))}
+                </>
               ) : isActivitiesLoading ? (
                 <>
                   <View style={[skStyles.card, { padding: 0 }]}>
@@ -797,37 +858,95 @@ export default function SearchScreen() {
                 </View>
               ) : (
                 <>
-                  {results.activities.slice(0, showAllActivities ? results.activities.length : SECTION_DEFAULT).map((a) => (
+                  <FilterBar
+                    query={activityQuery}
+                    onQueryChange={setActivityQuery}
+                    options={activityFilterOptions}
+                    activeFilters={activityFilters}
+                    onFiltersChange={setActivityFilters}
+                    totalCount={results.activities.length}
+                    filteredCount={filteredActivities.length}
+                    searchPlaceholder="Cerca attività, tour, esperienze..."
+                  />
+                  {filteredActivities.slice(0, showAllActivities ? filteredActivities.length : SECTION_DEFAULT).map((a) => (
                     <ActivityCard key={a.id} activity={a} selected={selectedActivities.includes(a.id)} onSelect={() => toggleActivity(a.id)} />
                   ))}
-                  {!showAllActivities && results.activities.length > SECTION_DEFAULT && (
-                    <ShowMoreButton hiddenCount={results.activities.length - SECTION_DEFAULT} onPress={() => toggleShowMore(setShowAllActivities, true)} />
+                  {!showAllActivities && filteredActivities.length > SECTION_DEFAULT && (
+                    <ShowMoreButton hiddenCount={filteredActivities.length - SECTION_DEFAULT} onPress={() => toggleShowMore(setShowAllActivities, true)} />
                   )}
-                  {showAllActivities && results.activities.length > SECTION_DEFAULT && (
+                  {showAllActivities && filteredActivities.length > SECTION_DEFAULT && (
                     <ShowLessButton onPress={() => toggleShowMore(setShowAllActivities, false)} />
                   )}
                 </>
               )}
             </ResultSection>
+              );
+            })()}
+
+            {/* 🚗 Auto */}
+            {(() => {
+              const visible = showAllCars ? filteredCars.length : Math.min(SECTION_DEFAULT, filteredCars.length);
+              return (
+                <ResultSection title="🚗 Auto" totalCount={filteredCars.length} visibleCount={visible}>
+                  {results.cars.length > 0 && (
+                    <FilterBar
+                      query={carQuery}
+                      onQueryChange={setCarQuery}
+                      options={carFilterOptions}
+                      activeFilters={carFilters}
+                      onFiltersChange={setCarFilters}
+                      totalCount={results.cars.length}
+                      filteredCount={filteredCars.length}
+                      searchPlaceholder="Cerca per marca o società..."
+                    />
+                  )}
+                  {filteredCars.slice(0, visible).map((c) => (
+                    <CarCard key={c.id} car={c} selected={selectedCar === c.id} onSelect={() => setSelectedCar(c.id === selectedCar ? null : c.id)} />
+                  ))}
+                  {filteredCars.length === 0 && results.cars.length > 0 && (
+                    <View style={styles.emptyRow}>
+                      <Text style={styles.emptyRowText}>Nessun risultato · prova a rimuovere i filtri</Text>
+                    </View>
+                  )}
+                  {!showAllCars && filteredCars.length > SECTION_DEFAULT && (
+                    <ShowMoreButton hiddenCount={filteredCars.length - SECTION_DEFAULT} onPress={() => toggleShowMore(setShowAllCars, true)} />
+                  )}
+                  {showAllCars && filteredCars.length > SECTION_DEFAULT && (
+                    <ShowLessButton onPress={() => toggleShowMore(setShowAllCars, false)} />
+                  )}
+                </ResultSection>
+              );
+            })()}
 
             {/* 🏥 Assicurazione */}
             {(() => {
-              const total = results.insurance.length;
-              const visible = showAllInsurance ? total : Math.min(SECTION_DEFAULT, total);
-              const slice = results.insurance.slice(0, visible);
+              const visible = showAllInsurance ? filteredInsurance.length : Math.min(SECTION_DEFAULT, filteredInsurance.length);
               return (
-                <ResultSection
-                  title="🏥 Assicurazione"
-                  totalCount={total}
-                  visibleCount={visible}
-                >
-                  {slice.map((ins) => (
+                <ResultSection title="🏥 Assicurazione" totalCount={filteredInsurance.length} visibleCount={visible}>
+                  {results.insurance.length > 0 && (
+                    <FilterBar
+                      query={insuranceQuery}
+                      onQueryChange={setInsuranceQuery}
+                      options={insuranceFilterOptions}
+                      activeFilters={insuranceFilters}
+                      onFiltersChange={setInsuranceFilters}
+                      totalCount={results.insurance.length}
+                      filteredCount={filteredInsurance.length}
+                      searchPlaceholder="Cerca per provider o piano..."
+                    />
+                  )}
+                  {filteredInsurance.slice(0, visible).map((ins) => (
                     <InsuranceCard key={ins.id} plan={ins} selected={selectedInsurance === ins.id} onSelect={() => setSelectedInsurance(ins.id === selectedInsurance ? null : ins.id)} />
                   ))}
-                  {!showAllInsurance && total > SECTION_DEFAULT && (
-                    <ShowMoreButton hiddenCount={total - SECTION_DEFAULT} onPress={() => toggleShowMore(setShowAllInsurance, true)} />
+                  {filteredInsurance.length === 0 && results.insurance.length > 0 && (
+                    <View style={styles.emptyRow}>
+                      <Text style={styles.emptyRowText}>Nessun risultato · prova a rimuovere i filtri</Text>
+                    </View>
                   )}
-                  {showAllInsurance && total > SECTION_DEFAULT && (
+                  {!showAllInsurance && filteredInsurance.length > SECTION_DEFAULT && (
+                    <ShowMoreButton hiddenCount={filteredInsurance.length - SECTION_DEFAULT} onPress={() => toggleShowMore(setShowAllInsurance, true)} />
+                  )}
+                  {showAllInsurance && filteredInsurance.length > SECTION_DEFAULT && (
                     <ShowLessButton onPress={() => toggleShowMore(setShowAllInsurance, false)} />
                   )}
                 </ResultSection>

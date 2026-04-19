@@ -59,15 +59,24 @@ const CATEGORY_INTEREST_MAP: Record<string, string[]> = {
   'theme park': ['adrenalina', 'divertimento', 'famiglia'],
 };
 
+function normalizeLabel(raw: unknown): string {
+  if (typeof raw === 'string') return raw;
+  if (raw && typeof raw === 'object' && 'text' in (raw as object)) {
+    const text = (raw as LabelObject).text;
+    if (typeof text === 'string') return text;
+  }
+  return '';
+}
+
 function extractCategories(
   primaryCategory: string | null | undefined,
-  labels: string[],
+  labels: Array<string | LabelObject>,
 ): string[] {
   const cats = new Set<string>();
   if (primaryCategory) cats.add(primaryCategory.toLowerCase());
   labels.forEach((l) => {
-    if (__DEV__ && typeof l !== 'string') console.log('[DIAG] label non-string:', JSON.stringify(l));
-    if (typeof l === 'string') cats.add(l.toLowerCase());
+    const str = normalizeLabel(l);
+    if (str) cats.add(str.toLowerCase());
   });
   return Array.from(cats);
 }
@@ -111,6 +120,8 @@ interface AttractionCategory {
   name?: string;
 }
 
+type LabelObject = { text?: string; type?: string; __typename?: string };
+
 interface AttractionDetails {
   id?: string;
   name?: string;
@@ -118,7 +129,10 @@ interface AttractionDetails {
   reviewsStats?: {
     allReviewsCount?: number;
     combinedNumericStats?: { average?: number };
+    numericStats?: { average?: number; total?: number };
   };
+  reviewScore?: number;
+  rating?: number;
   primaryPhoto?: { small?: string; large?: string };
   representativePrice?: { chargeAmount?: number; currency?: string };
   durationRange?: { durationInMinutes?: { lowerBound?: number; upperBound?: number } };
@@ -127,7 +141,7 @@ interface AttractionDetails {
   slug?: string;
   primaryCategory?: AttractionCategory;
   categories?: AttractionCategory[];
-  labels?: string[];
+  labels?: Array<string | LabelObject>;
   type?: string;
   ufiDetails?: { bCityName?: string };
 }
@@ -144,6 +158,7 @@ function calcActivityMatchScore(
   rating: number,
   reviewCount: number,
   price: number,
+  currency: string,
   durationHours: number,
   categories: string[],
   highlights: string[],
@@ -211,17 +226,20 @@ function calcActivityMatchScore(
   else if (adventure <= 40 && isCulturalActivity) vibePts = 15;
   breakdown.vibe = vibePts;
 
-  // Budget match (−5 to +15)
-  const range = activityBudgetRange(profile.budget ?? 50);
+  // Budget match (0 to +15): only compare when price is in EUR/USD (comparable currencies)
+  const EUR_LIKE = ['EUR', 'USD', 'GBP', 'CHF', 'AUD', 'CAD', 'NZD'];
+  const canCompareBudget = EUR_LIKE.includes(currency.toUpperCase()) && price > 0;
   let budgetPts = 0;
-  if (range.max === Infinity) {
-    budgetPts = price >= range.min ? 15 : (price >= range.min * 0.6 ? 5 : -5);
-  } else {
-    const span = range.max - range.min;
-    const lo = range.min - span * 0.3;
-    const hi = range.max + span * 0.3;
-    if (price >= lo && price <= hi) budgetPts = 15;
-    else budgetPts = -5;
+  if (canCompareBudget) {
+    const range = activityBudgetRange(profile.budget ?? 50);
+    if (range.max === Infinity) {
+      budgetPts = price >= range.min ? 15 : (price >= range.min * 0.6 ? 5 : 0);
+    } else {
+      const span = range.max - range.min;
+      const lo = range.min - span * 0.3;
+      const hi = range.max + span * 0.3;
+      budgetPts = price >= lo && price <= hi ? 15 : 0;
+    }
   }
   breakdown.budget = budgetPts;
 
@@ -284,8 +302,16 @@ function normalizeActivity(
   if (!price) return null;
 
   const currency = (details.representativePrice?.currency ?? 'EUR') as Currency;
-  const rating = details.reviewsStats?.combinedNumericStats?.average ?? 0;
-  const reviewCount = details.reviewsStats?.allReviewsCount ?? 0;
+  const rating =
+    details.reviewsStats?.combinedNumericStats?.average ??
+    details.reviewsStats?.numericStats?.average ??
+    details.reviewScore ??
+    details.rating ??
+    0;
+  const reviewCount =
+    details.reviewsStats?.allReviewsCount ??
+    details.reviewsStats?.numericStats?.total ??
+    0;
   const durationMinutes = parseDurationMinutes(details);
   const durationHours = Math.round((durationMinutes / 60) * 10) / 10;
   const durationLabel = formatDurationLabel(durationMinutes);
@@ -301,7 +327,7 @@ function normalizeActivity(
   const categories = extractCategories(primaryCatName, [...extraCats, ...labels]);
 
   const { score: matchScore, breakdown } = calcActivityMatchScore(
-    rating, reviewCount, price, durationHours, categories, highlights, profile,
+    rating, reviewCount, price, String(currency), durationHours, categories, highlights, profile,
   );
 
   return {
