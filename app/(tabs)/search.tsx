@@ -480,28 +480,46 @@ export default function SearchScreen() {
   const cartItems = useMemo<CartItem[]>(() => {
     if (!results) return [];
     const items: CartItem[] = [];
+
+    // Voli — sempre da singola destinazione
     if (selectedFlight) {
       const f = results.flights.find((x) => x.id === selectedFlight);
       if (f) items.push({ type: 'flight', offerId: f.id, name: `${f.airline} ${f.segments[0].origin}→${f.segments[f.segments.length - 1].destination}`, price: f.price, currency: f.currency });
     }
-    if (selectedHotel) {
-      const h = results.hotels.find((x) => x.id === selectedHotel);
-      if (h) items.push({ type: 'hotel', offerId: h.id, name: h.name, price: h.totalPrice, currency: h.currency });
+
+    if (multiCityMode) {
+      // Multi-città: legge direttamente da cityStops (source of truth)
+      for (const stop of cityStops) {
+        if (stop.selectedHotel) {
+          const h = stop.selectedHotel;
+          items.push({ type: 'hotel', offerId: h.id, name: `${h.name} · ${stop.name}`, price: h.totalPrice, currency: h.currency });
+        }
+        for (const act of stop.selectedActivities) {
+          items.push({ type: 'activity', offerId: act.id, name: act.name, price: act.price * params.travelers, currency: act.currency });
+        }
+      }
+    } else {
+      // Singola destinazione: legge da selezioni locali
+      if (selectedHotel) {
+        const h = results.hotels.find((x) => x.id === selectedHotel);
+        if (h) items.push({ type: 'hotel', offerId: h.id, name: h.name, price: h.totalPrice, currency: h.currency });
+      }
+      selectedActivities.forEach((aid) => {
+        const a = results.activities.find((x) => x.id === aid);
+        if (a) items.push({ type: 'activity', offerId: a.id, name: a.name, price: a.price * params.travelers, currency: a.currency });
+      });
     }
+
     if (selectedCar) {
       const c = results.cars.find((x) => x.id === selectedCar);
       if (c) items.push({ type: 'car', offerId: c.id, name: `${c.company} · ${c.name}`, price: c.totalPrice, currency: c.currency });
     }
-    selectedActivities.forEach((aid) => {
-      const a = results.activities.find((x) => x.id === aid);
-      if (a) items.push({ type: 'activity', offerId: a.id, name: a.name, price: a.price * params.travelers, currency: a.currency });
-    });
     if (selectedInsurance) {
       const ins = results.insurance.find((x) => x.id === selectedInsurance);
       if (ins) items.push({ type: 'insurance', offerId: ins.id, name: ins.name, price: ins.price * params.travelers, currency: ins.currency });
     }
     return items;
-  }, [results, selectedFlight, selectedHotel, selectedCar, selectedActivities, selectedInsurance, params.travelers]);
+  }, [results, selectedFlight, selectedHotel, selectedCar, selectedActivities, selectedInsurance, params.travelers, multiCityMode, cityStops]);
 
   const totalPrice = useMemo(() => cartItems.reduce((sum, item) => sum + item.price, 0), [cartItems]);
 
@@ -556,6 +574,9 @@ export default function SearchScreen() {
 
   const nights = nightsBetween(params.checkIn, params.checkOut);
   const hasCart = cartItems.length > 0;
+  const totalSelectedActivities = multiCityMode
+    ? cityStops.reduce((sum, s) => sum + s.selectedActivities.length, 0)
+    : 0;
 
   const fmt = (d: Date) => d.toLocaleDateString('it-IT', { day: 'numeric', month: 'short', year: 'numeric' });
 
@@ -803,11 +824,6 @@ export default function SearchScreen() {
             </ResultSection>
 
             {/* 🎯 Attività */}
-            {(() => {
-              const totalSelectedActivities = multiCityMode
-                ? cityStops.reduce((sum, s) => sum + s.selectedActivities.length, 0)
-                : 0;
-              return (
             <ResultSection
               title="🎯 Attività"
               totalCount={multiCityMode ? (totalSelectedActivities > 0 ? totalSelectedActivities : cityStops.length) : (isActivitiesLoading ? 0 : filteredActivities.length)}
@@ -880,8 +896,6 @@ export default function SearchScreen() {
                 </>
               )}
             </ResultSection>
-              );
-            })()}
 
             {/* 🚗 Auto */}
             {(() => {
