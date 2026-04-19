@@ -33,7 +33,7 @@ import {
 } from '../../src/utils/filter-helpers';
 
 import { getMockResults, DEFAULT_SEARCH_PARAMS } from '../../src/data/mockSearch';
-import { searchFlights, DuffelError } from '../../src/services/duffel';
+import { searchFlights, DuffelError, resolveCityToIATA } from '../../src/services/duffel';
 import { searchHotels, BookingError } from '../../src/services/booking';
 import { searchActivities } from '../../src/services/activities';
 import { generateMockCars } from '../../src/services/cars';
@@ -431,8 +431,17 @@ export default function SearchScreen() {
     setHasSearched(true);
     setIsSearching(false);
 
+    // For multi-city open-jaw: resolve last city's IATA so return slice departs from there
+    let flightParams = params;
+    if (multiCityMode && cityStops.length > 1) {
+      const lastStop = cityStops[cityStops.length - 1];
+      const lastIata = await resolveCityToIATA(lastStop.name).catch(() => '');
+      if (lastIata) flightParams = { ...params, returnOriginCode: lastIata };
+      if (__DEV__) console.log(`[search] multi-city open-jaw: return from ${lastStop.name} (${lastIata || 'unresolved'})`);
+    }
+
     // Fetch flights, hotels, activities independently
-    const flightPromise = searchFlights(params, onboardingData)
+    const flightPromise = searchFlights(flightParams, onboardingData)
       .then((flights) => {
         setIsFlightsLoading(false);
         setResults((prev) => prev ? { ...prev, flights } : prev);

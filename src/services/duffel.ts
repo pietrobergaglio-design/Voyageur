@@ -267,11 +267,13 @@ interface DuffelOffer {
 
 function normalizeOffer(offer: DuffelOffer, profile: OnboardingData): FlightOffer {
   const outbound = offer.slices[0];
-  const segs = outbound.segments;
-  const first = segs[0];
-  const last = segs[segs.length - 1];
+  const outSegs = outbound.segments; // outbound-only, used for stops/baggage/cabin
+  const first = outSegs[0];
 
-  const normalizedSegments: FlightSegment[] = segs.map((seg) => ({
+  // Flatten all slices so round-trip offers include both outbound and return segments
+  const allRawSegs = offer.slices.flatMap((s) => s.segments);
+
+  const normalizedSegments: FlightSegment[] = allRawSegs.map((seg) => ({
     origin: seg.origin.iata_code,
     destination: seg.destination.iata_code,
     departureAt: seg.departing_at,
@@ -281,8 +283,8 @@ function normalizeOffer(offer: DuffelOffer, profile: OnboardingData): FlightOffe
     aircraft: seg.aircraft?.name,
   }));
 
-  const stops = segs.length - 1;
-  const stopoverCities = stops > 0 ? segs.slice(0, -1).map((s) => s.destination.iata_code) : [];
+  const stops = outSegs.length - 1; // outbound stops only
+  const stopoverCities = stops > 0 ? outSegs.slice(0, -1).map((s) => s.destination.iata_code) : [];
   const price = parseFloat(offer.total_amount);
   const refundPolicy = mapRefundPolicy(offer.conditions);
   const { score: matchScore, breakdown } = calcMatchScore(offer, profile, price, stops);
@@ -399,7 +401,10 @@ export async function searchFlights(
     { origin: originCode, destination: destCode, departure_date: depDate },
   ];
   if (retDate !== depDate) {
-    slices.push({ origin: destCode, destination: originCode, departure_date: retDate });
+    // Open-jaw multi-city: return from last city (returnOriginCode), else standard round-trip
+    const returnOrigin = params.returnOriginCode ?? destCode;
+    slices.push({ origin: returnOrigin, destination: originCode, departure_date: retDate });
+    if (__DEV__) console.log(`[duffel] slices: ${originCode}→${destCode} (${depDate}) + ${returnOrigin}→${originCode} (${retDate})`);
   }
 
   const passengers = Array.from({ length: params.travelers }, () => ({ type: 'adult' as const }));

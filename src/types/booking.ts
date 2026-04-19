@@ -186,6 +186,7 @@ export interface SearchParams {
   originCode: string;
   destination: string;
   destinationCode?: string;
+  returnOriginCode?: string; // for open-jaw multi-city: last stop's IATA → origin
   checkIn: Date;
   checkOut: Date;
   travelers: number;
@@ -199,6 +200,20 @@ export interface SearchResults {
   activities: ActivityOffer[];
   insurance: InsurancePlan[];
   visa?: VisaInfo;
+}
+
+// ─── FlightDirectionGroup ─────────────────────────────────────────────────────
+
+export interface FlightDirectionGroup {
+  key: string;
+  airline: string;
+  segments: FlightSegment[];
+  stops: number;
+  durationMinutes: number;
+  departureAt: string;
+  arrivalAt: string;
+  estimatedPrice: number;
+  offerIds: string[];
 }
 
 // ─── Cart ────────────────────────────────────────────────────────────────────
