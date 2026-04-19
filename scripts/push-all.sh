@@ -2,7 +2,7 @@
 # scripts/push-all.sh — safe push helper for Voyageur
 # Usage: ./scripts/push-all.sh  OR  npm run push
 
-set -euo pipefail
+set -eo pipefail  # -u removed: read builtin leaves CONTINUE/PUSH_EMPTY unset on skipped branches
 
 BOLD="\033[1m"
 RED="\033[0;31m"
@@ -16,6 +16,12 @@ warn() { echo -e "${YELLOW}⚠${RESET}  $*"; }
 err()  { echo -e "${RED}✗ ERROR:${RESET} $*" >&2; exit 1; }
 hdr()  { echo -e "\n${BOLD}${CYAN}── $* ──${RESET}"; }
 
+# Resolve branch early so it's always defined before any usage
+CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+if [ -z "$CURRENT_BRANCH" ]; then
+  err "Non in un repo git (o detached HEAD). Entra nella cartella Voyageur."
+fi
+
 # ── 1. Location & branch check ────────────────────────────────────────────────
 hdr "1/7  Location & branch"
 
@@ -27,11 +33,6 @@ if [[ "$ACTUAL_DIR" != "$EXPECTED_DIR" ]]; then
   warn "Script will continue, but make sure you're in the right repo."
 fi
 
-if ! git rev-parse --git-dir &>/dev/null; then
-  err "Not inside a git repository."
-fi
-
-CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 if [[ "$CURRENT_BRANCH" != "main" ]]; then
   warn "You are on branch '$CURRENT_BRANCH', not 'main'."
   read -rp "  Continue anyway? [y/N] " CONTINUE
