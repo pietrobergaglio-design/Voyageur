@@ -1,6 +1,7 @@
 // TODO: spostare su backend in produzione per non esporre API key
 
 import type { Trip, TripItem } from '../types/trip';
+import type { BookingItem } from '../types/booking';
 import type { OnboardingData } from '../stores/useAppStore';
 import type { AIItinerary, AIItineraryDay, AIMultiCityItinerary, AIMultiCityCity } from '../types/ai-itinerary';
 import type { CityStop } from '../types/multi-city';
@@ -82,28 +83,58 @@ function formatItemsByDay(trip: Trip): string {
   const msPerDay = 86_400_000;
   const lines: string[] = [];
 
-  const relevantItems = trip.items.filter((i) => i.type !== 'insurance');
+  // New BookingItem format
+  if (trip.bookings && trip.bookings.length > 0) {
+    const relevant = trip.bookings.filter((b) => b.type !== 'insurance' && b.type !== 'visa');
+    if (relevant.length === 0) return 'Nessun evento fisso pianificato.';
 
-  if (relevantItems.length === 0) {
-    lines.push('Nessun evento fisso pianificato.');
+    const byDay: Record<string, BookingItem[]> = {};
+    for (const item of relevant) {
+      const d = new Date(item.timing.startDate + 'T00:00:00');
+      const dayIdx = Math.floor((d.getTime() - checkIn.getTime()) / msPerDay);
+      const key = `Giorno ${dayIdx + 1} (${d.toLocaleDateString('it-IT', { day: 'numeric', month: 'short' })})`;
+      byDay[key] = [...(byDay[key] ?? []), item];
+    }
+
+    for (const [day, items] of Object.entries(byDay)) {
+      lines.push(`${day}:`);
+      for (const item of items) {
+        const time = item.timing.startTime ? ` alle ${item.timing.startTime}` : '';
+        const end = item.timing.endTime ? `–${item.timing.endTime}` : '';
+        let detail = '';
+        if (item.type === 'flight' && item.flight) {
+          const stops = item.flight.stops.length === 0 ? 'diretto' : `${item.flight.stops.length} scala`;
+          detail = ` [VOLO ${item.flight.origin}→${item.flight.destination}, ${stops}]`;
+        } else if (item.type === 'transfer' && item.transfer) {
+          detail = ` [TRANSFER ${item.transfer.from}→${item.transfer.to} via ${item.transfer.modeLabel}]`;
+        } else if (item.type === 'hotel' && item.timing.endDate) {
+          const endD = new Date(item.timing.endDate + 'T00:00:00');
+          const endDayIdx = Math.floor((endD.getTime() - checkIn.getTime()) / msPerDay);
+          detail = ` [HOTEL, check-out Giorno ${endDayIdx + 1}]`;
+        }
+        lines.push(`  - ${item.title}${time}${end}${detail}`);
+      }
+    }
     return lines.join('\n');
   }
 
-  const byDay: Record<string, TripItem[]> = {};
+  // Fallback: old TripItem format
+  const relevantItems = trip.items.filter((i) => i.type !== 'insurance');
+  if (relevantItems.length === 0) return 'Nessun evento fisso pianificato.';
 
+  const byDayOld: Record<string, TripItem[]> = {};
   for (const item of relevantItems) {
     if (item.departureAt) {
       const d = new Date(item.departureAt);
       const dayIdx = Math.floor((d.getTime() - checkIn.getTime()) / msPerDay);
       const key = `Giorno ${dayIdx + 1} (${d.toLocaleDateString('it-IT', { day: 'numeric', month: 'short' })})`;
-      byDay[key] = [...(byDay[key] ?? []), item];
+      byDayOld[key] = [...(byDayOld[key] ?? []), item];
     } else {
-      const key = 'Tutto il viaggio';
-      byDay[key] = [...(byDay[key] ?? []), item];
+      byDayOld['Tutto il viaggio'] = [...(byDayOld['Tutto il viaggio'] ?? []), item];
     }
   }
 
-  for (const [day, items] of Object.entries(byDay)) {
+  for (const [day, items] of Object.entries(byDayOld)) {
     lines.push(`${day}:`);
     for (const item of items) {
       const time = item.departureAt ? ` alle ${new Date(item.departureAt).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}` : '';
@@ -112,6 +143,64 @@ function formatItemsByDay(trip: Trip): string {
   }
 
   return lines.join('\n');
+}
+
+function buildGenerationRules(trip: Trip, paceCursor: number): string {
+  const rules: string[] = [];
+  const checkIn = trip.checkIn ? new Date(trip.checkIn) : new Date();
+  const checkOut = trip.checkOut ? new Date(trip.checkOut) : new Date();
+  const msPerDay = 86_400_000;
+  const totalDays = Math.max(1, Math.round((checkOut.getTime() - checkIn.getTime()) / msPerDay));
+
+  const bookings = trip.bookings ?? [];
+  const flights = bookings.filter((b) => b.type === 'flight');
+  const transfers = bookings.filter((b) => b.type === 'transfer');
+
+  // Arrival flight: any flight whose arrival day is day 1
+  const arrivalFlight = flights.find((b) => {
+    const arrDate = b.timing.endDate ?? b.timing.startDate;
+    const d = new Date(arrDate + 'T00:00:00');
+    return Math.round((d.getTime() - checkIn.getTime()) / msPerDay) === 0;
+  });
+
+  if (arrivalFlight) {
+    const arrTime = arrivalFlight.timing.endTime ?? arrivalFlight.timing.startTime ?? null;
+    const timeNote = arrTime ? ` alle ${arrTime}` : '';
+    rules.push(`GIORNO 1 — ARRIVO${timeNote}: Utente appena atterrato, possibile jet lag. Proponi SOLO 1-2 attività leggere (check-in hotel, passeggiata breve, cena vicino all'hotel). Niente musei o tour intensi nel primo giorno.`);
+  }
+
+  // Return flight: flight whose departure day is the last day
+  const returnFlight = flights.find((b) => {
+    const d = new Date(b.timing.startDate + 'T00:00:00');
+    const dayIdx = Math.round((d.getTime() - checkIn.getTime()) / msPerDay);
+    return dayIdx >= totalDays - 1;
+  });
+
+  if (returnFlight && returnFlight.timing.startTime) {
+    const [hh, mm] = returnFlight.timing.startTime.split(':').map(Number);
+    const cutoffHour = (hh ?? 12) - 3;
+    const cutoffTime = `${String(Math.max(0, cutoffHour)).padStart(2, '0')}:${String(mm ?? 0).padStart(2, '0')}`;
+    const dayIdx = Math.round((new Date(returnFlight.timing.startDate + 'T00:00:00').getTime() - checkIn.getTime()) / msPerDay);
+    rules.push(`GIORNO ${dayIdx + 1} — VOLO RITORNO alle ${returnFlight.timing.startTime}: Proponi SOLO attività che finiscono entro le ${cutoffTime}. Preferisci attività vicine all'hotel/aeroporto. Niente escursioni lontane.`);
+  }
+
+  // Transfer days
+  for (const transfer of transfers) {
+    const d = new Date(transfer.timing.startDate + 'T00:00:00');
+    const dayIdx = Math.round((d.getTime() - checkIn.getTime()) / msPerDay);
+    if (transfer.timing.startTime) {
+      const endNote = transfer.timing.endTime ? `–${transfer.timing.endTime}` : '';
+      rules.push(`GIORNO ${dayIdx + 1} — TRANSFER (${transfer.title}) ore ${transfer.timing.startTime}${endNote}: Non schedulare attività in quell'intervallo. Solo attività prima della partenza o dopo l'arrivo a destinazione.`);
+    }
+  }
+
+  // Pace density rule
+  const maxPerDay = paceCursor <= 20 ? 1 : paceCursor <= 40 ? 2 : paceCursor <= 60 ? 3 : paceCursor <= 80 ? 4 : 5;
+  rules.push(`DENSITÀ GIORNALIERA: Ritmo utente ${paceCursor}/100 → max ${maxPerDay} suggerimenti per giornata piena. Giornate di arrivo/partenza/transfer: max 1-2 attività leggere indipendentemente dal riempimento richiesto.`);
+
+  rules.push(`TIME_SLOT OBBLIGATORIO: Ogni suggerimento DEVE avere time_slot ('morning', 'afternoon', 'evening') e start_time/end_time realistici. Non lasciare slot sovrapposti nella stessa giornata.`);
+
+  return rules.join('\n');
 }
 
 function buildUserPrompt(
@@ -173,14 +262,17 @@ PROFILO UTENTE:
 - Interessi: ${interests}
 - Nazionalità: ${profile.nationality || 'non specificata'}
 
-EVENTI GIÀ PIANIFICATI:
+EVENTI GIÀ PIANIFICATI (NON RIPETERE, non proporre nulla in conflitto orario):
 ${formatItemsByDay(trip)}
+
+REGOLE DI GENERAZIONE (rispetta sempre):
+${buildGenerationRules(trip, profile.pace)}
 
 RICHIESTA:
 - Riempimento slot liberi: ${fillPercentage}%
 - Includi suggerimenti pasti: ${includeMeals ? 'sì' : 'no, solo attività/esperienze'}
 
-Genera esattamente ${numDays} giornate. Per ogni giorno fornisci un numero di suggerimenti coerente con il riempimento richiesto (${fillPercentage}% = ~${Math.ceil(fillPercentage / 25)} suggerimenti/giorno). Non riempire gli slot già occupati da eventi pianificati sopra.
+Genera esattamente ${numDays} giornate. Per ogni giorno proponi suggerimenti solo negli slot LIBERI dagli eventi fissi sopra. Adatta la densità al ritmo utente (${paceLabel(profile.pace)}).
 
 FORMATO OUTPUT (JSON puro, nessun testo prima o dopo):
 ${outputSchema}`;
