@@ -26,3 +26,15 @@ export interface AIItinerary {
   days: AIItineraryDay[];
   generatedAt: string;
 }
+
+export interface AIMultiCityCity {
+  name: string;
+  startDay: number;
+  endDay: number;
+  days: AIItineraryDay[];
+}
+
+export interface AIMultiCityItinerary {
+  cities: AIMultiCityCity[];
+  generatedAt: string;
+}

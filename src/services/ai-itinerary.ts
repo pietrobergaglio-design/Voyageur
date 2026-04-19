@@ -2,7 +2,8 @@
 
 import type { Trip, TripItem } from '../types/trip';
 import type { OnboardingData } from '../stores/useAppStore';
-import type { AIItinerary, AIItineraryDay } from '../types/ai-itinerary';
+import type { AIItinerary, AIItineraryDay, AIMultiCityItinerary, AIMultiCityCity } from '../types/ai-itinerary';
+import type { CityStop } from '../types/multi-city';
 
 const CLAUDE_API_URL = 'https://api.anthropic.com/v1/messages';
 const MODEL = 'claude-sonnet-4-6';
@@ -201,7 +202,7 @@ export class GenerationError extends Error {
   }
 }
 
-async function callClaude(userPrompt: string, apiKey: string): Promise<string> {
+async function callClaude(userPrompt: string, apiKey: string, systemPrompt: string = SYSTEM_PROMPT): Promise<string> {
   const fetchPromise = fetch(CLAUDE_API_URL, {
     method: 'POST',
     headers: {
@@ -212,7 +213,7 @@ async function callClaude(userPrompt: string, apiKey: string): Promise<string> {
     body: JSON.stringify({
       model: MODEL,
       max_tokens: MAX_TOKENS,
-      system: SYSTEM_PROMPT,
+      system: systemPrompt,
       messages: [{ role: 'user', content: userPrompt }],
     }),
   });
@@ -255,6 +256,136 @@ export interface GenerateItineraryParams {
   includeMeals: boolean;
 }
 
+// ─── Multi-city itinerary ─────────────────────────────────────────────────────
+
+const MULTI_CITY_SYSTEM_PROMPT = `Sei un travel curator esperto. Stai generando un itinerario per un viaggio MULTI-CITTÀ.
+
+Regole fondamentali:
+- Per OGNI città, proponi suggerimenti coerenti col profilo utente
+- Non ripetere lo stesso tipo di esperienza in città diverse (es. se suggerisci gastronomia ad Osaka, non farlo a Kyoto)
+- Bilancia le esperienze: città più iconiche = attività imperdibili; città meno note = gemme nascoste
+- L'ultimo giorno di ogni città (eccetto l'ultima) è parziale: l'utente si sposta → poche attività mattutine
+- Il primo giorno di ogni città (eccetto la prima) inizia nel pomeriggio dopo lo spostamento
+
+Rispondi SEMPRE e solo in JSON valido secondo lo schema fornito. Nessun testo prima o dopo.`;
+
+function buildMultiCityPrompt(
+  trip: Trip,
+  cityStops: CityStop[],
+  profile: OnboardingData,
+  fillPercentage: number,
+  includeMeals: boolean,
+): string {
+  const checkIn = trip.checkIn ? new Date(trip.checkIn) : new Date();
+  const companion = companionContext(profile.companion, profile.childAges);
+  const interests = profile.interests.length > 0 ? profile.interests.join(', ') : 'non specificati';
+
+  const citySummary = cityStops.map((s, i) => {
+    const start = new Date(s.startDate + 'T00:00:00');
+    const dayOffset = Math.round((start.getTime() - checkIn.getTime()) / 86_400_000);
+    return `  Città ${i + 1}: ${s.name} (Giorni ${dayOffset + 1}–${dayOffset + s.nights}, ${s.nights} ${s.nights === 1 ? 'notte' : 'notti'})`;
+  }).join('\n');
+
+  const outputExample = JSON.stringify({
+    cities: cityStops.map((s, i) => {
+      const start = new Date(s.startDate + 'T00:00:00');
+      const dayOffset = Math.round((start.getTime() - checkIn.getTime()) / 86_400_000);
+      return {
+        name: s.name,
+        startDay: dayOffset + 1,
+        endDay: dayOffset + s.nights,
+        days: Array.from({ length: s.nights }, (_, d) => ({
+          day_number: dayOffset + d + 1,
+          date: new Date(start.getTime() + d * 86_400_000).toISOString().split('T')[0],
+          suggestions: [
+            {
+              time_slot: 'morning',
+              start_time: '09:00',
+              end_time: '11:00',
+              emoji: '🏯',
+              title: `Esempio attività a ${s.name}`,
+              caption: 'Caption Instagram (max 120 caratteri)',
+              description: '2-3 righe perché vale la pena.',
+              category: 'culture',
+              is_bookable: false,
+              price_estimate_eur: 0,
+              tags: ['📸 Spot foto'],
+            },
+          ],
+        })),
+      };
+    }),
+  }, null, 2);
+
+  return `Genera itinerario multi-città per:
+DESTINAZIONE PRINCIPALE: ${trip.destination}
+STRUTTURA VIAGGIO:
+${citySummary}
+VIAGGIATORI: ${trip.travelers} (${companion})
+
+PROFILO UTENTE:
+- Vibe: ${profile.adventure}/100 (${vibeLabel(profile.adventure)})
+- Cibo: ${profile.food}/100 (${foodLabel(profile.food)})
+- Ritmo: ${profile.pace}/100 (${paceLabel(profile.pace)})
+- Budget: ${profile.budget}/100 (${budgetLabel(profile.budget)})
+- Esperienza: ${profile.experience}/100 (${experienceLabel(profile.experience)})
+- Interessi: ${interests}
+
+RICHIESTA:
+- Riempimento: ${fillPercentage}% (~${Math.ceil(fillPercentage / 25)} suggerimenti/giorno)
+- Includi pasti: ${includeMeals ? 'sì' : 'no'}
+
+FORMATO OUTPUT (JSON puro):
+${outputExample}`;
+}
+
+function parseMultiCityItinerary(raw: string): AIMultiCityItinerary {
+  const cleaned = raw
+    .replace(/^```json\s*/i, '')
+    .replace(/^```\s*/i, '')
+    .replace(/```\s*$/i, '')
+    .trim();
+
+  const parsed = JSON.parse(cleaned) as { cities: AIMultiCityCity[] };
+  if (!Array.isArray(parsed.cities)) throw new Error('Invalid multi-city schema: missing cities array');
+  return { ...parsed, generatedAt: new Date().toISOString() };
+}
+
+export interface GenerateMultiCityItineraryParams {
+  trip: Trip;
+  cityStops: CityStop[];
+  userProfile: OnboardingData;
+  fillPercentage: 25 | 50 | 75 | 100;
+  includeMeals: boolean;
+}
+
+export async function generateMultiCityItinerary(params: GenerateMultiCityItineraryParams): Promise<AIMultiCityItinerary> {
+  const apiKey = process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY ?? '';
+  if (!apiKey || apiKey === PLACEHOLDER_KEY) throw new APIKeyMissingError();
+
+  const userPrompt = buildMultiCityPrompt(
+    params.trip,
+    params.cityStops,
+    params.userProfile,
+    params.fillPercentage,
+    params.includeMeals,
+  );
+
+  let lastError: Error | null = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const raw = await callClaude(userPrompt, apiKey, MULTI_CITY_SYSTEM_PROMPT);
+      return parseMultiCityItinerary(raw);
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      if (err instanceof APIKeyMissingError) throw err;
+    }
+  }
+  throw lastError ?? new GenerationError('Unknown error');
+}
+
+// ─── Single-city itinerary ────────────────────────────────────────────────────
+
 export async function generateItinerary(params: GenerateItineraryParams): Promise<AIItinerary> {
   const apiKey = process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY ?? '';
 
@@ -273,7 +404,7 @@ export async function generateItinerary(params: GenerateItineraryParams): Promis
 
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const raw = await callClaude(userPrompt, apiKey);
+      const raw = await callClaude(userPrompt, apiKey, SYSTEM_PROMPT);
       const itinerary = parseItinerary(raw);
       return itinerary;
     } catch (err) {

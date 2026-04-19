@@ -10,11 +10,15 @@ import { useFocusEffect } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { useCheckoutStore } from '../../src/stores/useCheckoutStore';
 import { useAppStore } from '../../src/stores/useAppStore';
+import { MultiCityPanel } from '../../src/components/search/MultiCityPanel';
+import { CityPanel } from '../../src/components/search/CityPanel';
+import type { CityStop, TransportSuggestion } from '../../src/types/multi-city';
 import { Toast } from '../../src/components/common/Toast';
 
 import { SearchBar } from '../../src/components/search/SearchBar';
 import { ResultSection } from '../../src/components/search/ResultSection';
 import { FlightCard } from '../../src/components/search/FlightCard';
+import { FlightSegmentCard, type FlightDirectionGroup } from '../../src/components/search/FlightSegmentCard';
 import { HotelCard } from '../../src/components/search/HotelCard';
 import { CarCard } from '../../src/components/search/CarCard';
 import { ActivityCard } from '../../src/components/search/ActivityCard';
@@ -29,7 +33,7 @@ import { searchHotels, BookingError } from '../../src/services/booking';
 import { searchActivities } from '../../src/services/activities';
 import { generateMockCars } from '../../src/services/cars';
 import { getVisaInfo } from '../../src/services/visa';
-import type { SearchParams, SearchResults, CartItem } from '../../src/types/booking';
+import type { SearchParams, SearchResults, CartItem, FlightSegment } from '../../src/types/booking';
 import type { Trip } from '../../src/types/trip';
 import { Colors, FontFamily, FontSize, Spacing, Radius } from '../../src/constants/theme';
 
@@ -37,6 +41,117 @@ const CART_BAR_HEIGHT = 88;
 
 function nightsBetween(from: Date, to: Date) {
   return Math.max(1, Math.round((to.getTime() - from.getTime()) / 86_400_000));
+}
+
+// ─── Flight 3+3 helpers ───────────────────────────────────────────────────────
+
+function segmentGroupKey(segs: FlightSegment[]): string {
+  if (segs.length === 0) return '';
+  const first = segs[0];
+  const last = segs[segs.length - 1];
+  const dep = first.departureAt.slice(11, 16); // HH:MM
+  return `${first.origin}_${last.destination}_${dep}_${segs.length}`;
+}
+
+function extractDirectionGroups(
+  flights: import('../../src/types/booking').FlightOffer[],
+  destCode: string | undefined,
+): { outbound: FlightDirectionGroup[]; returnDir: FlightDirectionGroup[] } {
+  const obMap = new Map<string, FlightDirectionGroup>();
+  const retMap = new Map<string, FlightDirectionGroup>();
+
+  for (const offer of flights) {
+    const segs = offer.segments;
+    if (segs.length === 0) continue;
+
+    // Find split index: last segment whose destination matches destCode
+    let splitIdx = segs.length; // default = all outbound (one-way)
+    if (destCode) {
+      for (let i = 0; i < segs.length; i++) {
+        if (segs[i].destination.toUpperCase() === destCode.toUpperCase()) {
+          splitIdx = i + 1;
+          break;
+        }
+      }
+    }
+
+    const outSegs = segs.slice(0, splitIdx);
+    const retSegs = segs.slice(splitIdx);
+
+    // Outbound group
+    if (outSegs.length > 0) {
+      const key = segmentGroupKey(outSegs);
+      const existing = obMap.get(key);
+      const dur = outSegs.reduce((s, seg) => s + seg.durationMinutes, 0);
+      if (!existing) {
+        obMap.set(key, {
+          key,
+          airline: offer.airline,
+          segments: outSegs,
+          stops: outSegs.length - 1,
+          durationMinutes: offer.totalDurationMinutes ?? dur,
+          departureAt: outSegs[0].departureAt,
+          arrivalAt: outSegs[outSegs.length - 1].arrivalAt,
+          estimatedPrice: offer.price / 2,
+          offerIds: [offer.id],
+        });
+      } else {
+        existing.offerIds.push(offer.id);
+        existing.estimatedPrice = Math.min(existing.estimatedPrice, offer.price / 2);
+      }
+    }
+
+    // Return group
+    if (retSegs.length > 0) {
+      const key = segmentGroupKey(retSegs);
+      const existing = retMap.get(key);
+      const dur = retSegs.reduce((s, seg) => s + seg.durationMinutes, 0);
+      if (!existing) {
+        retMap.set(key, {
+          key,
+          airline: offer.airline,
+          segments: retSegs,
+          stops: retSegs.length - 1,
+          durationMinutes: dur,
+          departureAt: retSegs[0].departureAt,
+          arrivalAt: retSegs[retSegs.length - 1].arrivalAt,
+          estimatedPrice: offer.price / 2,
+          offerIds: [offer.id],
+        });
+      } else {
+        existing.offerIds.push(offer.id);
+        existing.estimatedPrice = Math.min(existing.estimatedPrice, offer.price / 2);
+      }
+    }
+  }
+
+  // Sort by departure time
+  const sortByDep = (a: FlightDirectionGroup, b: FlightDirectionGroup) =>
+    a.departureAt.localeCompare(b.departureAt);
+
+  return {
+    outbound: Array.from(obMap.values()).sort(sortByDep),
+    returnDir: Array.from(retMap.values()).sort(sortByDep),
+  };
+}
+
+function findBestOffer(
+  flights: import('../../src/types/booking').FlightOffer[],
+  outboundKey: string,
+  returnKey: string,
+): import('../../src/types/booking').FlightOffer | null {
+  // Exact match: offer contains both outbound and return
+  for (const offer of flights) {
+    const segs = offer.segments;
+    const obKey = segmentGroupKey(segs.slice(0, Math.ceil(segs.length / 2)));
+    const retKey = segmentGroupKey(segs.slice(Math.ceil(segs.length / 2)));
+    if (obKey === outboundKey && retKey === returnKey) return offer;
+  }
+  // Fallback: offer that contains the outbound key
+  return flights.find((f) => {
+    const key = segmentGroupKey(f.segments.slice(0, Math.ceil(f.segments.length / 2)));
+    return key === outboundKey;
+  }) ?? flights[0] ?? null;
 }
 
 // ─── Skeletons ────────────────────────────────────────────────────────────────
@@ -171,6 +286,12 @@ export default function SearchScreen() {
   const initCheckout = useCheckoutStore((s) => s.initCheckout);
   const pendingDraftRestore = useCheckoutStore((s) => s.pendingDraftRestore);
   const setPendingDraftRestore = useCheckoutStore((s) => s.setPendingDraftRestore);
+  const multiCityMode = useCheckoutStore((s) => s.multiCityMode);
+  const cityStops = useCheckoutStore((s) => s.cityStops);
+  const transportSuggestions = useCheckoutStore((s) => s.transportSuggestions);
+  const setMultiCityMode = useCheckoutStore((s) => s.setMultiCityMode);
+  const setCityStops = useCheckoutStore((s) => s.setCityStops);
+  const clearMultiCity = useCheckoutStore((s) => s.clearMultiCity);
   const addTrip = useAppStore((s) => s.addTrip);
   const onboardingData = useAppStore((s) => s.onboardingData);
 
@@ -189,6 +310,7 @@ export default function SearchScreen() {
   const [showDraftModal, setShowDraftModal] = useState(false);
   const [toastVisible, setToastVisible] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
+  const [showMultiCityPanel, setShowMultiCityPanel] = useState(false);
 
   useEffect(() => {
     return () => {
@@ -216,6 +338,10 @@ export default function SearchScreen() {
   const [selectedCar, setSelectedCar] = useState<string | null>(null);
   const [selectedActivities, setSelectedActivities] = useState<string[]>([]);
   const [selectedInsurance, setSelectedInsurance] = useState<string | null>(null);
+  const [selectedOutboundKey, setSelectedOutboundKey] = useState<string | null>(null);
+  const [selectedReturnKey, setSelectedReturnKey] = useState<string | null>(null);
+  const [showAllOutbound, setShowAllOutbound] = useState(false);
+  const [showAllReturn, setShowAllReturn] = useState(false);
 
   // Restore draft selections when returning from a draft's "Modifica selezioni"
   useFocusEffect(
@@ -262,6 +388,10 @@ export default function SearchScreen() {
     setSelectedCar(null);
     setSelectedActivities([]);
     setSelectedInsurance(null);
+    setSelectedOutboundKey(null);
+    setSelectedReturnKey(null);
+    setShowAllOutbound(false);
+    setShowAllReturn(false);
     setShowAllFlights(false);
     setShowAllHotels(false);
     setShowAllCars(false);
@@ -351,6 +481,19 @@ export default function SearchScreen() {
 
   const totalPrice = useMemo(() => cartItems.reduce((sum, item) => sum + item.price, 0), [cartItems]);
 
+  const { outboundGroups, returnGroups } = useMemo(() => {
+    if (!results?.flights?.length) return { outboundGroups: [] as FlightDirectionGroup[], returnGroups: [] as FlightDirectionGroup[] };
+    const { outbound, returnDir } = extractDirectionGroups(results.flights, params.destinationCode);
+    return { outboundGroups: outbound, returnGroups: returnDir };
+  }, [results?.flights, params.destinationCode]);
+
+  useEffect(() => {
+    if (!results?.flights?.length) { setSelectedFlight(null); return; }
+    if (!selectedOutboundKey) { setSelectedFlight(null); return; }
+    const best = findBestOffer(results.flights, selectedOutboundKey, selectedReturnKey ?? '');
+    setSelectedFlight(best?.id ?? null);
+  }, [selectedOutboundKey, selectedReturnKey, results?.flights]);
+
   const nights = nightsBetween(params.checkIn, params.checkOut);
   const hasCart = cartItems.length > 0;
 
@@ -386,6 +529,9 @@ export default function SearchScreen() {
       items: draftItems,
       bookingRef: '',
       createdAt: new Date().toISOString(),
+      isMultiCity: multiCityMode || undefined,
+      cityStops: multiCityMode ? cityStops : undefined,
+      transportSuggestions: multiCityMode ? transportSuggestions : undefined,
     };
 
     addTrip(draft);
@@ -437,32 +583,64 @@ export default function SearchScreen() {
 
             {/* ✈️ Voli */}
             {(() => {
-              const total = results.flights.length;
-              const visible = showAllFlights ? total : Math.min(SECTION_DEFAULT, total);
-              const slice = results.flights.slice(0, visible);
+              const isOneWay = returnGroups.length === 0;
+              const obSlice = outboundGroups.slice(0, showAllOutbound ? outboundGroups.length : SECTION_DEFAULT);
+              const retSlice = returnGroups.slice(0, showAllReturn ? returnGroups.length : SECTION_DEFAULT);
+
               return (
                 <ResultSection
                   title="✈️ Voli"
-                  totalCount={isFlightsLoading ? 0 : total}
-                  visibleCount={isFlightsLoading ? undefined : visible}
+                  totalCount={isFlightsLoading ? 0 : outboundGroups.length}
+                  visibleCount={isFlightsLoading ? undefined : obSlice.length}
                 >
                   {isFlightsLoading ? (
                     <><FlightSkeleton /><FlightSkeleton /><FlightSkeleton /></>
-                  ) : total === 0 ? (
+                  ) : results.flights.length === 0 ? (
                     <View style={styles.emptyRow}>
                       <Text style={styles.emptyRowText}>Nessun volo trovato per queste date</Text>
                     </View>
                   ) : (
                     <>
-                      {slice.map((f) => (
-                        <FlightCard key={f.id} flight={f} selected={selectedFlight === f.id} onSelect={() => setSelectedFlight(f.id === selectedFlight ? null : f.id)} />
+                      {/* Andata */}
+                      <Text style={styles.directionLabel}>Andata</Text>
+                      {obSlice.map((g) => (
+                        <FlightSegmentCard
+                          key={g.key}
+                          group={g}
+                          selected={selectedOutboundKey === g.key}
+                          onSelect={() => setSelectedOutboundKey(g.key === selectedOutboundKey ? null : g.key)}
+                          direction="outbound"
+                        />
                       ))}
-                      {!showAllFlights && total > SECTION_DEFAULT && (
-                        <ShowMoreButton hiddenCount={total - SECTION_DEFAULT} onPress={() => toggleShowMore(setShowAllFlights, true)} />
+                      {!showAllOutbound && outboundGroups.length > SECTION_DEFAULT && (
+                        <ShowMoreButton hiddenCount={outboundGroups.length - SECTION_DEFAULT} onPress={() => toggleShowMore(setShowAllOutbound, true)} />
                       )}
-                      {showAllFlights && total > SECTION_DEFAULT && (
-                        <ShowLessButton onPress={() => toggleShowMore(setShowAllFlights, false)} />
+                      {showAllOutbound && outboundGroups.length > SECTION_DEFAULT && (
+                        <ShowLessButton onPress={() => toggleShowMore(setShowAllOutbound, false)} />
                       )}
+
+                      {/* Ritorno */}
+                      {!isOneWay && (
+                        <>
+                          <Text style={[styles.directionLabel, { marginTop: Spacing.sm }]}>Ritorno</Text>
+                          {retSlice.map((g) => (
+                            <FlightSegmentCard
+                              key={g.key}
+                              group={g}
+                              selected={selectedReturnKey === g.key}
+                              onSelect={() => setSelectedReturnKey(g.key === selectedReturnKey ? null : g.key)}
+                              direction="return"
+                            />
+                          ))}
+                          {!showAllReturn && returnGroups.length > SECTION_DEFAULT && (
+                            <ShowMoreButton hiddenCount={returnGroups.length - SECTION_DEFAULT} onPress={() => toggleShowMore(setShowAllReturn, true)} />
+                          )}
+                          {showAllReturn && returnGroups.length > SECTION_DEFAULT && (
+                            <ShowLessButton onPress={() => toggleShowMore(setShowAllReturn, false)} />
+                          )}
+                        </>
+                      )}
+
                       <View style={styles.poweredByRow}>
                         <Text style={styles.poweredBy}>Voli in tempo reale · Powered by Duffel</Text>
                       </View>
@@ -473,44 +651,85 @@ export default function SearchScreen() {
             })()}
 
             {/* 🏨 Hotel */}
-            {(() => {
-              const total = results.hotels.length;
-              const visible = showAllHotels ? total : Math.min(SECTION_DEFAULT, total);
-              const slice = results.hotels.slice(0, visible);
-              return (
-                <ResultSection
-                  title="🏨 Hotel"
-                  totalCount={isHotelsLoading ? 0 : total}
-                  visibleCount={isHotelsLoading ? undefined : visible}
+            <ResultSection
+              title="🏨 Hotel"
+              totalCount={multiCityMode ? cityStops.length : (isHotelsLoading ? 0 : results.hotels.length)}
+              visibleCount={multiCityMode ? cityStops.length : (isHotelsLoading ? undefined : Math.min(SECTION_DEFAULT, results.hotels.length))}
+              rightAction={hasSearched && !isHotelsLoading ? (
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.multiCityChip,
+                    multiCityMode && styles.multiCityChipActive,
+                    pressed && { opacity: 0.75 },
+                  ]}
+                  onPress={() => {
+                    if (multiCityMode) {
+                      clearMultiCity();
+                    } else {
+                      setShowMultiCityPanel(true);
+                    }
+                  }}
                 >
-                  {isHotelsLoading ? (
-                    <><HotelSkeleton /><HotelSkeleton /></>
-                  ) : total === 0 ? (
-                    <View style={styles.emptyRow}>
-                      <Text style={styles.emptyRowText}>Nessun hotel trovato per queste date</Text>
+                  <Text style={[styles.multiCityChipText, multiCityMode && styles.multiCityChipTextActive]}>
+                    {multiCityMode ? `✓ ${cityStops.length} città` : '🗺️ Multi-città'}
+                  </Text>
+                </Pressable>
+              ) : undefined}
+            >
+              {multiCityMode ? (
+                <>
+                  {cityStops.map((stop, idx) => (
+                    <View key={stop.id}>
+                      <CityPanel
+                        stop={stop}
+                        onPress={() => router.push(`/city/${stop.id}`)}
+                      />
+                      {/* Transport banner between cities */}
+                      {idx < cityStops.length - 1 && (() => {
+                        const t = transportSuggestions.find(
+                          (ts) => ts.from.toLowerCase() === stop.name.toLowerCase(),
+                        );
+                        if (!t) return null;
+                        return (
+                          <View style={styles.transportBanner}>
+                            <Text style={styles.transportBannerText}>
+                              🚄 {t.from} → {t.to} · {t.duration} · ~€{t.price_eur}
+                            </Text>
+                          </View>
+                        );
+                      })()}
                     </View>
-                  ) : (
-                    <>
-                      {slice.map((h) => (
-                        <HotelCard key={h.id} hotel={h} nights={nights} selected={selectedHotel === h.id} onSelect={() => setSelectedHotel(h.id === selectedHotel ? null : h.id)} />
-                      ))}
-                      {!showAllHotels && total > SECTION_DEFAULT && (
-                        <ShowMoreButton hiddenCount={total - SECTION_DEFAULT} onPress={() => toggleShowMore(setShowAllHotels, true)} />
-                      )}
-                      {showAllHotels && total > SECTION_DEFAULT && (
-                        <ShowLessButton onPress={() => toggleShowMore(setShowAllHotels, false)} />
-                      )}
-                      <View style={styles.poweredByRow}>
-                        <Text style={styles.poweredBy}>
-                          {hotelCacheAgeMs != null ? `Aggiornato ${Math.round(hotelCacheAgeMs / 60000)} min fa · ` : ''}
-                          Powered by Booking.com
-                        </Text>
-                      </View>
-                    </>
+                  ))}
+                  <View style={styles.poweredByRow}>
+                    <Text style={styles.poweredBy}>Powered by Booking.com</Text>
+                  </View>
+                </>
+              ) : isHotelsLoading ? (
+                <><HotelSkeleton /><HotelSkeleton /></>
+              ) : results.hotels.length === 0 ? (
+                <View style={styles.emptyRow}>
+                  <Text style={styles.emptyRowText}>Nessun hotel trovato per queste date</Text>
+                </View>
+              ) : (
+                <>
+                  {results.hotels.slice(0, showAllHotels ? results.hotels.length : SECTION_DEFAULT).map((h) => (
+                    <HotelCard key={h.id} hotel={h} nights={nights} selected={selectedHotel === h.id} onSelect={() => setSelectedHotel(h.id === selectedHotel ? null : h.id)} />
+                  ))}
+                  {!showAllHotels && results.hotels.length > SECTION_DEFAULT && (
+                    <ShowMoreButton hiddenCount={results.hotels.length - SECTION_DEFAULT} onPress={() => toggleShowMore(setShowAllHotels, true)} />
                   )}
-                </ResultSection>
-              );
-            })()}
+                  {showAllHotels && results.hotels.length > SECTION_DEFAULT && (
+                    <ShowLessButton onPress={() => toggleShowMore(setShowAllHotels, false)} />
+                  )}
+                  <View style={styles.poweredByRow}>
+                    <Text style={styles.poweredBy}>
+                      {hotelCacheAgeMs != null ? `Aggiornato ${Math.round(hotelCacheAgeMs / 60000)} min fa · ` : ''}
+                      Powered by Booking.com
+                    </Text>
+                  </View>
+                </>
+              )}
+            </ResultSection>
 
             {/* 🚗 Auto */}
             {(() => {
@@ -537,58 +756,59 @@ export default function SearchScreen() {
             })()}
 
             {/* 🎯 Attività */}
-            {(() => {
-              const total = results.activities.length;
-              const visible = showAllActivities ? total : Math.min(SECTION_DEFAULT, total);
-              const slice = results.activities.slice(0, visible);
-              return (
-                <ResultSection
-                  title="🎯 Attività"
-                  totalCount={isActivitiesLoading ? 0 : total}
-                  visibleCount={isActivitiesLoading ? undefined : visible}
-                >
-                  {isActivitiesLoading ? (
-                    <>
-                      <View style={[skStyles.card, { padding: 0 }]}>
-                        <View style={[skStyles.photoBlock, { height: 140 }]} />
-                        <View style={{ padding: Spacing.md, gap: Spacing.sm }}>
-                          <View style={[skStyles.bar, { width: '70%', height: 14 }]} />
-                          <View style={[skStyles.bar, { width: '40%', height: 11 }]} />
-                        </View>
-                      </View>
-                      <View style={[skStyles.card, { padding: 0 }]}>
-                        <View style={[skStyles.photoBlock, { height: 140 }]} />
-                        <View style={{ padding: Spacing.md, gap: Spacing.sm }}>
-                          <View style={[skStyles.bar, { width: '60%', height: 14 }]} />
-                          <View style={[skStyles.bar, { width: '35%', height: 11 }]} />
-                        </View>
-                      </View>
-                    </>
-                  ) : activitiesUnavailable ? (
-                    <View style={styles.emptyRow}>
-                      <Text style={styles.emptyRowText}>🔧 Attività temporaneamente non disponibili</Text>
-                      <Text style={[styles.emptyRowText, { fontSize: 12, marginTop: 4, opacity: 0.6 }]}>Quota API esaurita — riprova domani</Text>
+            <ResultSection
+              title="🎯 Attività"
+              totalCount={multiCityMode ? cityStops.length : (isActivitiesLoading ? 0 : results.activities.length)}
+              visibleCount={multiCityMode ? cityStops.length : (isActivitiesLoading ? undefined : Math.min(SECTION_DEFAULT, results.activities.length))}
+            >
+              {multiCityMode ? (
+                cityStops.map((stop) => (
+                  <CityPanel
+                    key={stop.id}
+                    stop={stop}
+                    onPress={() => router.push(`/city/${stop.id}`)}
+                  />
+                ))
+              ) : isActivitiesLoading ? (
+                <>
+                  <View style={[skStyles.card, { padding: 0 }]}>
+                    <View style={[skStyles.photoBlock, { height: 140 }]} />
+                    <View style={{ padding: Spacing.md, gap: Spacing.sm }}>
+                      <View style={[skStyles.bar, { width: '70%', height: 14 }]} />
+                      <View style={[skStyles.bar, { width: '40%', height: 11 }]} />
                     </View>
-                  ) : total === 0 ? (
-                    <View style={styles.emptyRow}>
-                      <Text style={styles.emptyRowText}>Nessuna attività trovata</Text>
+                  </View>
+                  <View style={[skStyles.card, { padding: 0 }]}>
+                    <View style={[skStyles.photoBlock, { height: 140 }]} />
+                    <View style={{ padding: Spacing.md, gap: Spacing.sm }}>
+                      <View style={[skStyles.bar, { width: '60%', height: 14 }]} />
+                      <View style={[skStyles.bar, { width: '35%', height: 11 }]} />
                     </View>
-                  ) : (
-                    <>
-                      {slice.map((a) => (
-                        <ActivityCard key={a.id} activity={a} selected={selectedActivities.includes(a.id)} onSelect={() => toggleActivity(a.id)} />
-                      ))}
-                      {!showAllActivities && total > SECTION_DEFAULT && (
-                        <ShowMoreButton hiddenCount={total - SECTION_DEFAULT} onPress={() => toggleShowMore(setShowAllActivities, true)} />
-                      )}
-                      {showAllActivities && total > SECTION_DEFAULT && (
-                        <ShowLessButton onPress={() => toggleShowMore(setShowAllActivities, false)} />
-                      )}
-                    </>
+                  </View>
+                </>
+              ) : activitiesUnavailable ? (
+                <View style={styles.emptyRow}>
+                  <Text style={styles.emptyRowText}>🔧 Attività temporaneamente non disponibili</Text>
+                  <Text style={[styles.emptyRowText, { fontSize: 12, marginTop: 4, opacity: 0.6 }]}>Quota API esaurita — riprova domani</Text>
+                </View>
+              ) : results.activities.length === 0 ? (
+                <View style={styles.emptyRow}>
+                  <Text style={styles.emptyRowText}>Nessuna attività trovata</Text>
+                </View>
+              ) : (
+                <>
+                  {results.activities.slice(0, showAllActivities ? results.activities.length : SECTION_DEFAULT).map((a) => (
+                    <ActivityCard key={a.id} activity={a} selected={selectedActivities.includes(a.id)} onSelect={() => toggleActivity(a.id)} />
+                  ))}
+                  {!showAllActivities && results.activities.length > SECTION_DEFAULT && (
+                    <ShowMoreButton hiddenCount={results.activities.length - SECTION_DEFAULT} onPress={() => toggleShowMore(setShowAllActivities, true)} />
                   )}
-                </ResultSection>
-              );
-            })()}
+                  {showAllActivities && results.activities.length > SECTION_DEFAULT && (
+                    <ShowLessButton onPress={() => toggleShowMore(setShowAllActivities, false)} />
+                  )}
+                </>
+              )}
+            </ResultSection>
 
             {/* 🏥 Assicurazione */}
             {(() => {
@@ -645,6 +865,24 @@ export default function SearchScreen() {
       />
 
       <Toast message={toastMessage} visible={toastVisible} onHide={() => setToastVisible(false)} />
+
+      {/* Multi-city panel — rendered outside ScrollView to avoid VirtualizedList nesting issues */}
+      {showMultiCityPanel && (
+        <MultiCityPanel
+          visible={showMultiCityPanel}
+          searchParams={params}
+          profile={onboardingData}
+          onClose={() => setShowMultiCityPanel(false)}
+          onApply={(stops, transport) => {
+            setCityStops(stops, transport);
+            setMultiCityMode(true);
+            setShowMultiCityPanel(false);
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            setToastMessage(`Multi-città attivo · ${stops.length} città`);
+            setToastVisible(true);
+          }}
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -672,6 +910,14 @@ const styles = StyleSheet.create({
   resultsSubtitle: { fontFamily: FontFamily.body, fontSize: FontSize.sm, color: Colors.text.muted },
   emptyRow: { paddingVertical: Spacing.lg, alignItems: 'center' },
   emptyRowText: { fontFamily: FontFamily.body, fontSize: FontSize.sm, color: Colors.text.muted },
+  directionLabel: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: FontSize.xs,
+    color: Colors.text.muted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    paddingVertical: 4,
+  },
   poweredByRow: {
     alignItems: 'center',
     paddingVertical: Spacing.xs,
@@ -680,5 +926,42 @@ const styles = StyleSheet.create({
     fontFamily: FontFamily.body,
     fontSize: FontSize.xs,
     color: Colors.text.muted,
+  },
+  multiCityChip: {
+    borderWidth: 1.5,
+    borderColor: Colors.accent,
+    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    minHeight: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  multiCityChipActive: {
+    backgroundColor: Colors.teal,
+    borderColor: Colors.teal,
+  },
+  multiCityChipText: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: FontSize.xs,
+    color: Colors.accent,
+  },
+  multiCityChipTextActive: {
+    color: Colors.white,
+  },
+  transportBanner: {
+    backgroundColor: Colors.navy + '11',
+    borderRadius: Radius.sm,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    marginVertical: 4,
+    borderWidth: 1,
+    borderColor: Colors.navy + '22',
+  },
+  transportBannerText: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: FontSize.xs,
+    color: Colors.navy,
+    textAlign: 'center',
   },
 });

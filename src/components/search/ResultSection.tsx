@@ -16,6 +16,8 @@ interface Props {
   visibleCount?: number;
   children: React.ReactNode;
   defaultExpanded?: boolean;
+  /** Optional element rendered to the right of badge (e.g. multi-city chip). */
+  rightAction?: React.ReactNode;
 }
 
 export function ResultSection({
@@ -24,6 +26,7 @@ export function ResultSection({
   visibleCount,
   children,
   defaultExpanded = true,
+  rightAction,
 }: Props) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const rotation = useSharedValue(defaultExpanded ? 1 : 0);
@@ -51,6 +54,7 @@ export function ResultSection({
               <Text style={styles.badgeText}>{countLabel}</Text>
             </View>
           )}
+          {rightAction}
         </View>
         <Animated.Text style={[styles.chevron, chevronStyle]}>∨</Animated.Text>
       </Pressable>

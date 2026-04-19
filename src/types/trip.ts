@@ -1,4 +1,5 @@
-import type { AIItinerary } from './ai-itinerary';
+import type { AIItinerary, AIMultiCityItinerary } from './ai-itinerary';
+import type { CityStop, TransportSuggestion } from './multi-city';
 
 export type TripStatus = 'draft' | 'booked' | 'active' | 'past';
 
@@ -36,4 +37,8 @@ export interface Trip {
   createdAt: string;
   bookedAt?: string;
   itinerary?: AIItinerary;
+  isMultiCity?: boolean;
+  cityStops?: CityStop[];
+  transportSuggestions?: TransportSuggestion[];
+  multiCityItinerary?: AIMultiCityItinerary;
 }

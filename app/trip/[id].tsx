@@ -15,10 +15,12 @@ import { useCheckoutStore } from '../../src/stores/useCheckoutStore';
 import { mockTokyoTrip } from '../../src/data/mockTrip';
 import { getMockResults } from '../../src/data/mockSearch';
 import { SLOT_RANGES, getSlotForHour, type SlotId } from '../../src/data/mockItinerary';
-import { generateItinerary, APIKeyMissingError, type GenerateItineraryParams } from '../../src/services/ai-itinerary';
+import { generateItinerary, generateMultiCityItinerary, APIKeyMissingError, type GenerateItineraryParams, type GenerateMultiCityItineraryParams } from '../../src/services/ai-itinerary';
+import { CitySectionHeader } from '../../src/components/trips/CitySectionHeader';
+import { TransferBanner } from '../../src/components/trips/TransferBanner';
 import { Toast } from '../../src/components/common/Toast';
 import type { TripItem, Trip } from '../../src/types/trip';
-import type { AIActivitySuggestion, AIItinerary } from '../../src/types/ai-itinerary';
+import type { AIActivitySuggestion, AIItinerary, AIMultiCityItinerary } from '../../src/types/ai-itinerary';
 import type { CartItem, SearchParams, Currency } from '../../src/types/booking';
 import { Colors, FontFamily, FontSize, Spacing, Radius } from '../../src/constants/theme';
 
@@ -725,18 +727,23 @@ export default function TripDetailScreen() {
 
   // Map persisted itinerary into suggestionsByDay
   const [suggestionsByDay, setSuggestionsByDay] = useState<AIActivitySuggestion[][]>([]);
+  const [multiCityItinerary, setMultiCityItinerary] = useState<AIMultiCityItinerary | null>(null);
 
   // Load from cache on mount only — skip if we already generated in this session
   const cacheLoadedRef = useRef(false);
   useEffect(() => {
     if (cacheLoadedRef.current) return;
-    if (trip?.itinerary) {
+    if (trip?.isMultiCity && trip.multiCityItinerary) {
+      cacheLoadedRef.current = true;
+      setMultiCityItinerary(trip.multiCityItinerary);
+      setGenerated(true);
+    } else if (trip?.itinerary) {
       cacheLoadedRef.current = true;
       const mapped = trip.itinerary.days.map((d) => d.suggestions);
       setSuggestionsByDay(mapped);
       setGenerated(true);
     }
-  }, [trip?.itinerary]);
+  }, [trip?.itinerary, trip?.multiCityItinerary]);
 
   const days = useMemo(() => {
     if (!trip) return [];
@@ -836,11 +843,41 @@ export default function TripDetailScreen() {
     }
   }
 
+  async function runMultiCityGeneration(params: GenerateMultiCityItineraryParams) {
+    setIsGenerating(true);
+    setShowConfig(false);
+    try {
+      const result = await generateMultiCityItinerary(params);
+      setMultiCityItinerary(result);
+      setRemovedSuggKeys(new Set());
+      setGenerated(true);
+      if (trip) updateTrip(trip.id, { multiCityItinerary: result });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (err) {
+      if (err instanceof APIKeyMissingError) {
+        Alert.alert(
+          'API key mancante',
+          'Configura la tua API key in .env per usare l\'AI (EXPO_PUBLIC_ANTHROPIC_API_KEY).',
+        );
+      } else {
+        setToastMessage('Qualcosa è andato storto. Riprova.');
+        setToastVisible(true);
+        if (__DEV__) console.error('[TripDetail] Multi-city AI error:', err);
+      }
+    } finally {
+      setIsGenerating(false);
+    }
+  }
+
   function handleGenerate() {
     if (!trip) return;
     const fillMap: Record<number, 25 | 50 | 75 | 100> = { 0: 25, 33: 25, 50: 50, 66: 75, 100: 100 };
     const fillPercentage = fillMap[density] ?? 50;
-    runGeneration({ trip, userProfile: profile, fillPercentage, includeMeals });
+    if (trip.isMultiCity && trip.cityStops) {
+      runMultiCityGeneration({ trip, cityStops: trip.cityStops, userProfile: profile, fillPercentage, includeMeals });
+    } else {
+      runGeneration({ trip, userProfile: profile, fillPercentage, includeMeals });
+    }
   }
 
   function handleRegen() {
@@ -949,7 +986,10 @@ export default function TripDetailScreen() {
         <Text style={styles.flag}>{trip.coverEmoji}</Text>
         <View style={styles.headerInfo}>
           <Text style={styles.destination}>{trip.name ?? trip.destination}</Text>
-          <Text style={styles.dates}>{trip.dateRange}</Text>
+          <Text style={styles.dates}>
+            {trip.dateRange}
+            {trip.isMultiCity && trip.cityStops ? ` · ${trip.cityStops.length} città` : ''}
+          </Text>
         </View>
         {isDraft && (
           <View style={styles.draftPill}>
@@ -964,7 +1004,76 @@ export default function TripDetailScreen() {
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          {days.map((day) => {
+          {trip.isMultiCity && trip.cityStops ? (() => {
+            // Multi-city render: CitySectionHeader + per-city days + TransferBanner between cities
+            let globalDay = 0;
+            return trip.cityStops.map((stop, cityIdx) => {
+              const cityGlobalStart = globalDay + 1;
+              const cityGlobalEnd = globalDay + stop.nights;
+              const cityDays = days.slice(globalDay, globalDay + stop.nights);
+              const transport = trip.transportSuggestions?.find(
+                (t) => t.from.toLowerCase() === stop.name.toLowerCase()
+              );
+              globalDay += stop.nights;
+
+              return (
+                <View key={stop.id}>
+                  <CitySectionHeader
+                    stop={stop}
+                    globalDayStart={cityGlobalStart}
+                    globalDayEnd={cityGlobalEnd}
+                  />
+
+                  {cityDays.map((day) => {
+                    const localDayIdx = day.dayIndex - (cityGlobalStart - 1);
+                    const aiSuggs = multiCityItinerary?.cities[cityIdx]?.days[localDayIdx]?.suggestions ?? [];
+                    const dayManuals = manualByDay[day.dayIndex] ?? [];
+                    const daySuggs = aiSuggs.filter((s) => {
+                      const key = `${day.dayIndex}-${s.time_slot}`;
+                      return !removedSuggKeys.has(key);
+                    });
+                    const allDayBookings = day.bookings.filter((b) => b.isAllDay);
+                    const timedBookings = day.bookings.filter((b) => !b.isAllDay);
+
+                    return (
+                      <View key={day.dayIndex} style={styles.dayBlock}>
+                        <View style={styles.dayHeader}>
+                          <Text style={styles.dayLabel}>{day.dayLabel}</Text>
+                          <Text style={styles.dateLabel}>{day.dateLabel}</Text>
+                        </View>
+
+                        {allDayBookings.map((b) => <BookingCard key={b.id} b={b} isDraft={isDraft} />)}
+
+                        {SLOT_RANGES.map((slot) => {
+                          const isEditing = editing?.dayIndex === day.dayIndex && editing.slotId === slot.id;
+                          const booking = timedBookings.find((b) => b.timeLabel && getSlotForHour(parseHour(b.timeLabel)) === slot.id);
+                          if (booking) return <BookingCard key={slot.id} b={booking} isDraft={isDraft} />;
+                          const manual = dayManuals.find((m) => m.slotId === slot.id);
+                          if (manual && !isEditing) {
+                            return <ManualCard key={slot.id} event={manual} onEdit={() => openEditor(day.dayIndex, slot, manual.id, manual)} onDelete={() => deleteManual(day.dayIndex, manual.id)} />;
+                          }
+                          if (isEditing) {
+                            return <InlineEditor key={slot.id} editing={editing!} onSave={saveEdit} onCancel={() => setEditing(null)} />;
+                          }
+                          const sugg = daySuggs.find((s) => TIME_SLOT_TO_SLOT_ID[s.time_slot] === slot.id);
+                          if (sugg) {
+                            const suggKey = `${day.dayIndex}-${sugg.time_slot}`;
+                            return <AISuggestionCard key={slot.id} suggestion={sugg} expanded={expandedSuggs.has(suggKey)} onToggle={() => toggleExpanded(suggKey)} onRemove={() => setRemovedSuggKeys((prev) => new Set([...prev, suggKey]))} />;
+                          }
+                          return <EmptySlotRow key={slot.id} label={slot.label} onTap={() => openEditor(day.dayIndex, slot)} />;
+                        })}
+                      </View>
+                    );
+                  })}
+
+                  {/* Transfer to next city */}
+                  {transport && cityIdx < trip.cityStops!.length - 1 && (
+                    <TransferBanner transfer={transport} />
+                  )}
+                </View>
+              );
+            });
+          })() : days.map((day) => {
             const dayManuals = manualByDay[day.dayIndex] ?? [];
             const daySuggs = (suggestionsByDay[day.dayIndex] ?? []).filter((s) => {
               const key = `${day.dayIndex}-${s.time_slot}`;
