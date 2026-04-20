@@ -43,7 +43,7 @@ export function TripCard({ trip, onPress }: Props) {
 
       <View style={styles.footer}>
         <Text style={styles.meta}>
-          {trip.travelers} {trip.travelers === 1 ? 'persona' : 'persone'} · {trip.items.length} elementi
+          {trip.travelers} {trip.travelers === 1 ? 'persona' : 'persone'} · {(trip.bookings?.length ?? 0)} elementi
         </Text>
         <Text style={[styles.price, trip.status === 'draft' && styles.priceDraft]}>
           {trip.totalPrice.toLocaleString('it-IT')} {trip.currency}

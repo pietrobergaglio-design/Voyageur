@@ -1,6 +1,6 @@
 // TODO: spostare su backend in produzione per non esporre API key
 
-import type { Trip, TripItem } from '../types/trip';
+import type { Trip } from '../types/trip';
 import type { BookingItem } from '../types/booking';
 import type { OnboardingData } from '../stores/useAppStore';
 import type { AIItinerary, AIItineraryDay, AIMultiCityItinerary, AIMultiCityCity } from '../types/ai-itinerary';
@@ -118,31 +118,7 @@ function formatItemsByDay(trip: Trip): string {
     return lines.join('\n');
   }
 
-  // Fallback: old TripItem format
-  const relevantItems = trip.items.filter((i) => i.type !== 'insurance');
-  if (relevantItems.length === 0) return 'Nessun evento fisso pianificato.';
-
-  const byDayOld: Record<string, TripItem[]> = {};
-  for (const item of relevantItems) {
-    if (item.departureAt) {
-      const d = new Date(item.departureAt);
-      const dayIdx = Math.floor((d.getTime() - checkIn.getTime()) / msPerDay);
-      const key = `Giorno ${dayIdx + 1} (${d.toLocaleDateString('it-IT', { day: 'numeric', month: 'short' })})`;
-      byDayOld[key] = [...(byDayOld[key] ?? []), item];
-    } else {
-      byDayOld['Tutto il viaggio'] = [...(byDayOld['Tutto il viaggio'] ?? []), item];
-    }
-  }
-
-  for (const [day, items] of Object.entries(byDayOld)) {
-    lines.push(`${day}:`);
-    for (const item of items) {
-      const time = item.departureAt ? ` alle ${new Date(item.departureAt).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}` : '';
-      lines.push(`  - ${item.title}${time}`);
-    }
-  }
-
-  return lines.join('\n');
+  return 'Nessun evento fisso pianificato.';
 }
 
 function buildGenerationRules(trip: Trip, paceCursor: number): string {

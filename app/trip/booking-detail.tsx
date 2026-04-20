@@ -360,68 +360,8 @@ export default function BookingDetailPage() {
       if (booking) return <BookingItemContent booking={booking} isDraft={isDraft} />;
     }
 
-    if (bookingKey === 'flight_outbound' && trip.flightOutbound) {
-      return <FlightContent group={trip.flightOutbound} label="Andata" isDraft={isDraft} />;
-    }
-    if (bookingKey === 'flight_return' && trip.flightReturn) {
-      return <FlightContent group={trip.flightReturn} label="Ritorno" isDraft={isDraft} />;
-    }
-    if (bookingKey === 'car' && trip.selectedCar) {
-      return <CarContent car={trip.selectedCar} isDraft={isDraft} />;
-    }
-    if (bookingKey === 'insurance' && trip.selectedInsurancePlan) {
-      return <InsuranceContent plan={trip.selectedInsurancePlan} isDraft={isDraft} />;
-    }
     if (bookingKey === 'visa' && trip.visaInfo) {
       return <VisaContent visa={trip.visaInfo} />;
-    }
-    if (bookingKey === 'hotel_single') {
-      const hotelItem = trip.items.find((i) => i.type === 'hotel');
-      if (hotelItem) {
-        const mockHotel: HotelOffer = {
-          id: hotelItem.id,
-          provider: 'booking',
-          name: hotelItem.title,
-          zone: hotelItem.subtitle,
-          stars: 4,
-          propertyType: 'hotel',
-          pricePerNight: hotelItem.price / Math.max(1, nights),
-          totalPrice: hotelItem.price,
-          currency: 'EUR',
-          refundPolicy: hotelItem.refundPolicy ?? 'moderate',
-          matchScore: 0,
-          tags: [],
-          amenities: [],
-        };
-        return (
-          <HotelContent
-            hotel={mockHotel}
-            nights={nights}
-            checkIn={trip.checkIn?.slice(0, 10)}
-            checkOut={trip.checkOut?.slice(0, 10)}
-            isDraft={isDraft}
-          />
-        );
-      }
-    }
-    if (bookingKey.startsWith('activity_single_')) {
-      const actId = bookingKey.replace('activity_single_', '');
-      const actItem = trip.items.find((i) => i.id === actId && i.type === 'activity');
-      if (actItem) {
-        const mockAct: ActivityOffer = {
-          id: actItem.id,
-          provider: 'viator',
-          name: actItem.title,
-          durationHours: 3,
-          price: actItem.price,
-          currency: 'EUR',
-          categories: [],
-          matchScore: 0,
-          tags: [],
-          highlights: [],
-        };
-        return <ActivityContent activity={mockAct} isDraft={isDraft} />;
-      }
     }
     if (bookingKey.startsWith('hotel_city_') && trip.cityStops) {
       const stopId = bookingKey.replace('hotel_city_', '');
