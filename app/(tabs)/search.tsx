@@ -443,7 +443,7 @@ function insurancePlanToBookingItem(plan: InsurancePlan, params: SearchParams): 
       endDate: params.checkOut.toISOString().split('T')[0],
     },
     insurance: {
-      plan: plan.planType === 'essential' ? 'Essential' : plan.planType === 'plus' ? 'Plus' : 'Complete',
+      plan: plan.planType === 'essential' ? 'Essential' : plan.planType === 'plus' ? 'Plus' : 'Premium',
       coverage: plan.coverageItems,
       medicalLimit: 50_000,
     },

@@ -319,7 +319,7 @@ export interface BookingItem {
 
   // Insurance-specific
   insurance?: {
-    plan: 'Essential' | 'Plus' | 'Complete';
+    plan: 'Essential' | 'Plus' | 'Premium';
     coverage: string[];
     medicalLimit: number;
   };

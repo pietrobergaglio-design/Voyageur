@@ -328,10 +328,10 @@ export function carOfferToBookingItem(
 
 // ─── Insurance ────────────────────────────────────────────────────────────────
 
-const PLAN_MAP: Record<InsurancePlan['planType'], 'Essential' | 'Plus' | 'Complete'> = {
+const PLAN_MAP: Record<InsurancePlan['planType'], 'Essential' | 'Plus' | 'Premium'> = {
   essential: 'Essential',
   plus: 'Plus',
-  premium: 'Complete',
+  premium: 'Premium',
 };
 
 export function insurancePlanToBookingItem(
