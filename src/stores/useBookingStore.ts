@@ -9,6 +9,7 @@ import type {
 } from '../types/booking';
 import type { CityStop, TransportSuggestion } from '../types/multi-city';
 import type { Trip } from '../types/trip';
+import { generateConfirmationCode } from '../utils/confirmation-codes';
 
 // ─── Store interface ──────────────────────────────────────────────────────────
 
@@ -68,7 +69,7 @@ interface BookingStore {
 
   // ── Persistence ───────────────────────────────────────────────────────────────
   saveDraft(name: string): Trip;
-  bookNow(): Trip;
+  bookNow(bookingRef: string, draftTripId?: string): Trip;
   loadFromTrip(trip: Trip): void;
   reset(): void;
 }
@@ -264,15 +265,43 @@ export const useBookingStore = create<BookingStore>()(
         return trip;
       },
 
-      bookNow: () => {
+      bookNow: (bookingRef: string, draftTripId?: string) => {
+        // Idempotency: return existing trip if this bookingRef was already booked
+        const existing = _findTripByBookingRef(bookingRef);
+        if (existing) {
+          if (__DEV__) console.warn('[bookNow] Trip already exists for ref', bookingRef);
+          return existing;
+        }
+
         const { bookings, searchParams, isMultiCity, cityStops, transportSuggestions } = get();
         const summary = get().getSummary();
         const params = searchParams;
-        const ref = Math.random().toString(36).slice(2, 10).toUpperCase();
+        const now = new Date().toISOString();
 
+        const bookedBookings: BookingItem[] = bookings.map((b) => {
+          if (b.confirmation) return { ...b, status: 'booked' as BookingStatus };
+          const code = generateConfirmationCode(b);
+          if (!code) return { ...b, status: 'booked' as BookingStatus };
+          return {
+            ...b,
+            status: 'booked' as BookingStatus,
+            confirmation: {
+              code,
+              qrData: JSON.stringify({
+                id: b.id,
+                type: b.type,
+                title: b.title,
+                code,
+                date: b.timing.startDate,
+              }),
+            },
+          };
+        });
+
+        const tripId = draftTripId ?? `booked-${Date.now()}`;
         const trip: Trip = {
-          id: `booked-${Date.now()}`,
-          name: params?.destination ?? 'Viaggio',
+          id: tripId,
+          name: params?.destination.split(',')[0] ?? 'Viaggio',
           destination: params?.destination ?? '',
           destinationCode: params?.destinationCode ?? '',
           origin: params?.origin,
@@ -288,17 +317,21 @@ export const useBookingStore = create<BookingStore>()(
           totalPrice: summary.total,
           currency: summary.currency,
           items: [],
-          bookings: bookings.map((b) => ({ ...b, status: 'booked' as BookingStatus })),
-          bookingRef: ref,
-          createdAt: new Date().toISOString(),
-          bookedAt: new Date().toISOString(),
+          bookings: bookedBookings,
+          bookingRef,
+          createdAt: now,
+          bookedAt: now,
           isMultiCity,
           cityStops: isMultiCity ? cityStops : undefined,
           transportSuggestions: isMultiCity ? transportSuggestions : undefined,
         };
 
-        _addToAppStore(trip);
-        set({ currentTripId: trip.id });
+        if (draftTripId) {
+          _updateInAppStore(draftTripId, { ...trip, id: draftTripId });
+        } else {
+          _addToAppStore(trip);
+        }
+        set({ currentTripId: tripId });
         return trip;
       },
 
@@ -357,20 +390,41 @@ export const useBookingStore = create<BookingStore>()(
   ),
 );
 
-// ─── Cross-store helper (avoids circular import) ──────────────────────────────
+// ─── Cross-store helpers (avoids circular import) ─────────────────────────────
+
+type _AppStore = { addTrip: (t: Trip) => void; updateTrip: (id: string, u: Partial<Trip>) => void; trips: Trip[] };
+
+function _getAppStore(): _AppStore | null {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { useAppStore } = require('./useAppStore') as { useAppStore: { getState: () => _AppStore } };
+    return useAppStore.getState();
+  } catch {
+    return null;
+  }
+}
 
 // Lazy import to avoid circular dep: useBookingStore → useAppStore → ...
-let _appStoreAdded = false;
 function _addToAppStore(trip: Trip): void {
-  try {
-    // Dynamic require to break potential circular dependency at module level
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { useAppStore } = require('./useAppStore') as { useAppStore: { getState: () => { addTrip: (t: Trip) => void } } };
-    useAppStore.getState().addTrip(trip);
-    _appStoreAdded = true;
-  } catch {
-    if (__DEV__) console.warn('[useBookingStore] could not add trip to useAppStore');
+  const store = _getAppStore();
+  if (store) {
+    store.addTrip(trip);
+  } else if (__DEV__) {
+    console.warn('[useBookingStore] could not add trip to useAppStore');
   }
+}
+
+function _updateInAppStore(id: string, updates: Partial<Trip>): void {
+  const store = _getAppStore();
+  if (store) {
+    store.updateTrip(id, updates);
+  } else if (__DEV__) {
+    console.warn('[useBookingStore] could not update trip in useAppStore');
+  }
+}
+
+function _findTripByBookingRef(ref: string): Trip | undefined {
+  return _getAppStore()?.trips.find((t) => t.bookingRef === ref);
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

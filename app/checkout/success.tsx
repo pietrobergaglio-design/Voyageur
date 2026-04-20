@@ -12,86 +12,12 @@ import Animated, {
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { useCheckoutStore } from '../../src/stores/useCheckoutStore';
-import { useAppStore } from '../../src/stores/useAppStore';
+import { useBookingStore } from '../../src/stores/useBookingStore';
 import { Colors, FontFamily, FontSize, Radius, Spacing } from '../../src/constants/theme';
-import type { Trip, TripItem } from '../../src/types/trip';
-
-const pad = (n: number) => String(n).padStart(2, '0');
-
-function buildTrip(snapshot: NonNullable<ReturnType<typeof useCheckoutStore.getState>['snapshot']>, bookingRef: string): Trip {
-  const { cartItems, finalTotal, currency, searchParams, results } = snapshot;
-  const fmt = (d: Date) => d.toLocaleDateString('it-IT', { day: 'numeric', month: 'short', year: 'numeric' });
-
-  const items: TripItem[] = cartItems.map((ci, idx) => {
-    const base: TripItem = {
-      id: `${ci.type}-${ci.offerId}`,
-      type: ci.type,
-      title: ci.name,
-      subtitle: ci.name,
-      dateLabel: `${fmt(searchParams.checkIn)} – ${fmt(searchParams.checkOut)}`,
-      confirmCode: `${bookingRef}-${idx.toString(36).toUpperCase()}`,
-      price: ci.price,
-    };
-
-    if (ci.type === 'flight') {
-      const f = results.flights.find((x) => x.id === ci.offerId);
-      if (f) {
-        const seg = f.segments[0];
-        const last = f.segments[f.segments.length - 1];
-        return {
-          ...base,
-          subtitle: `${f.airline} · ${seg.origin}→${last.destination}`,
-          refundPolicy: f.refundPolicy,
-          iata: { origin: seg.origin, destination: last.destination },
-          departureAt: seg.departureAt,
-          arrivalAt: last.arrivalAt,
-        };
-      }
-    }
-    if (ci.type === 'hotel') {
-      const h = results.hotels.find((x) => x.id === ci.offerId);
-      if (h) return { ...base, subtitle: `${h.name} · ${h.zone}`, refundPolicy: h.refundPolicy };
-    }
-    if (ci.type === 'car') {
-      const c = results.cars.find((x) => x.id === ci.offerId);
-      if (c) return { ...base, subtitle: `${c.company} · ${c.name} · ${c.days} giorni`, refundPolicy: c.refundPolicy };
-    }
-    if (ci.type === 'activity') {
-      const a = results.activities.find((x) => x.id === ci.offerId);
-      if (a) return { ...base, subtitle: `${a.suggestedDay} · ${a.durationHours}h` };
-    }
-    if (ci.type === 'insurance') {
-      const ins = results.insurance.find((x) => x.id === ci.offerId);
-      if (ins) return { ...base, subtitle: ins.name, insuranceProvider: 'Qover', coverageItems: ins.coverageItems };
-    }
-    return base;
-  });
-
-  return {
-    id: `trip-${Date.now()}`,
-    name: searchParams.destination.split(',')[0],
-    destination: searchParams.destination,
-    destinationCode: searchParams.destinationCode ?? '',
-    coverEmoji: '✈️',
-    dateRange: `${fmt(searchParams.checkIn)} – ${fmt(searchParams.checkOut)}`,
-    checkIn: searchParams.checkIn.toISOString(),
-    checkOut: searchParams.checkOut.toISOString(),
-    status: 'booked',
-    travelers: searchParams.travelers,
-    totalPrice: finalTotal,
-    currency,
-    bookingRef,
-    items,
-    createdAt: new Date().toISOString(),
-    bookedAt: new Date().toISOString(),
-  };
-}
 
 export default function SuccessScreen() {
   const { snapshot, bookingRef, draftTripId, reset } = useCheckoutStore();
-  const addTrip = useAppStore((s) => s.addTrip);
-  const updateTrip = useAppStore((s) => s.updateTrip);
-  const existingDraft = useAppStore((s) => draftTripId ? s.trips.find((t) => t.id === draftTripId) : null);
+  const bookNow = useBookingStore((s) => s.bookNow);
 
   const checkScale = useSharedValue(0);
   const contentOpacity = useSharedValue(0);
@@ -106,18 +32,7 @@ export default function SuccessScreen() {
 
     if (!tripAdded.current) {
       tripAdded.current = true;
-      const trip = buildTrip(snapshot, bookingRef);
-      if (draftTripId) {
-        updateTrip(draftTripId, {
-          ...trip,
-          id: draftTripId,
-          name: existingDraft?.name ?? trip.name,
-          status: 'booked',
-          bookedAt: new Date().toISOString(),
-        });
-      } else {
-        addTrip(trip);
-      }
+      bookNow(bookingRef, draftTripId ?? undefined);
     }
 
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);

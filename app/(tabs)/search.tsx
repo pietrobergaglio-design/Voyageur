@@ -39,6 +39,9 @@ import { searchHotels, BookingError } from '../../src/services/booking';
 import { searchActivities } from '../../src/services/activities';
 import { generateMockCars } from '../../src/services/cars';
 import { getVisaInfo } from '../../src/services/visa';
+// TODO: Real insurance pricing will be handled by Qover API (or similar)
+//       post-LLC. Current mock pricing logic is intentionally simplified.
+import { insurancePlanToBookingItem } from '../../src/adapters/booking-adapters';
 import type { SearchParams, SearchResults, CartItem, CartItemType, FlightSegment, BookingItem, HotelOffer, ActivityOffer, CarOffer, InsurancePlan, FlightOffer, Currency } from '../../src/types/booking';
 import type { Trip } from '../../src/types/trip';
 import { Colors, FontFamily, FontSize, Spacing, Radius } from '../../src/constants/theme';
@@ -424,32 +427,6 @@ function carOfferToBookingItem(car: CarOffer, params: SearchParams): BookingItem
     refund: {
       refundable: car.refundPolicy !== 'strict',
       description: car.refundPolicy === 'flexible' ? 'Rimborsabile' : 'Non rimborsabile',
-    },
-  };
-}
-
-function insurancePlanToBookingItem(plan: InsurancePlan, params: SearchParams): BookingItem {
-  return {
-    id: `insurance-${plan.id}`,
-    type: 'insurance',
-    status: 'selected',
-    title: plan.name,
-    provider: plan.provider,
-    price: plan.price * params.travelers,
-    currency: plan.currency,
-    photos: [],
-    timing: {
-      startDate: params.checkIn.toISOString().split('T')[0],
-      endDate: params.checkOut.toISOString().split('T')[0],
-    },
-    insurance: {
-      plan: plan.planType === 'essential' ? 'Essential' : plan.planType === 'plus' ? 'Plus' : 'Premium',
-      coverage: plan.coverageItems,
-      medicalLimit: 50_000,
-    },
-    refund: {
-      refundable: false,
-      description: 'Non rimborsabile dopo acquisto',
     },
   };
 }
