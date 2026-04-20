@@ -14,16 +14,19 @@ import { useAppStore } from '../../src/stores/useAppStore';
 import { useCheckoutStore } from '../../src/stores/useCheckoutStore';
 import { mockTokyoTrip } from '../../src/data/mockTrip';
 import { getMockResults } from '../../src/data/mockSearch';
-import { SLOT_RANGES, getSlotForHour, type SlotId } from '../../src/data/mockItinerary';
+import { SLOT_RANGES, type SlotId } from '../../src/data/mockItinerary';
 import { generateItinerary, generateMultiCityItinerary, APIKeyMissingError, type GenerateItineraryParams, type GenerateMultiCityItineraryParams } from '../../src/services/ai-itinerary';
 import { CitySectionHeader } from '../../src/components/trips/CitySectionHeader';
 import { TransferBanner } from '../../src/components/trips/TransferBanner';
 import { TripTabSwitcher, type TripTab } from '../../src/components/trips/TripTabSwitcher';
 import { BookingsTab } from '../../src/components/trips/BookingsTab';
+import { TimelineDaySection } from '../../src/components/trips/TimelineDaySection';
+import { buildTimeline } from '../../src/utils/itinerary-builder';
 import { Toast } from '../../src/components/common/Toast';
-import type { TripItem, Trip } from '../../src/types/trip';
+import type { Trip } from '../../src/types/trip';
+import { migrateTripToBookings } from '../../src/utils/trip-migration';
 import type { AIActivitySuggestion, AIItinerary, AIMultiCityItinerary } from '../../src/types/ai-itinerary';
-import type { CartItem, CartItemType, SearchParams, Currency, BookingType, BookingStatus } from '../../src/types/booking';
+import type { CartItem, CartItemType, SearchParams, Currency } from '../../src/types/booking';
 import { Colors, FontFamily, FontSize, Spacing, Radius } from '../../src/constants/theme';
 
 // ─── AI slot adapter ──────────────────────────────────────────────────────────
@@ -67,7 +70,6 @@ type EditingState = {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const pad = (n: number) => String(Math.max(0, n)).padStart(2, '0');
-const parseHour = (t: string) => parseInt(t.split(':')[0] ?? '9', 10);
 
 function formatPrice(yen: number) {
   if (yen < 1000) return `${yen} ¥`;
@@ -322,84 +324,6 @@ const edStyles = StyleSheet.create({
   saveText: { fontFamily: FontFamily.bodySemiBold, fontSize: FontSize.sm, color: Colors.white },
 });
 
-// ─── BookingCard ──────────────────────────────────────────────────────────────
-
-interface BookingDisplay {
-  id: string;
-  emoji: string;
-  title: string;
-  subtitle: string;
-  timeLabel?: string;
-  isAllDay?: boolean;
-  // BookingItem-aware fields
-  status?: BookingStatus;
-  bookingItemId?: string; // for navigation to booking-detail
-  tripId?: string;
-}
-
-function BookingCard({ b, isDraft }: { b: BookingDisplay; isDraft?: boolean }) {
-  const isBooked = b.status === 'booked';
-  const isSelected = b.status === 'selected';
-
-  const handlePress = () => {
-    if (b.bookingItemId && b.tripId) {
-      router.push(`/trip/booking-detail?tripId=${b.tripId}&bookingKey=${b.bookingItemId}`);
-    }
-  };
-
-  const Wrapper = b.bookingItemId ? Pressable : View;
-  const wrapperProps = b.bookingItemId
-    ? { onPress: handlePress, style: ({ pressed }: { pressed: boolean }) => [bcStyles.card, isDraft && bcStyles.cardDraft, pressed && { opacity: 0.85 }] as const }
-    : { style: [bcStyles.card, isDraft && bcStyles.cardDraft] as const };
-
-  return (
-    <Wrapper {...(wrapperProps as Record<string, unknown>)}>
-      <View style={bcStyles.left}>
-        <View style={[bcStyles.circle, isDraft && bcStyles.circleDraft]}>
-          <Text style={bcStyles.emoji}>{b.emoji}</Text>
-        </View>
-        {b.timeLabel && <Text style={[bcStyles.time, isDraft && bcStyles.timeDraft]}>{b.timeLabel}</Text>}
-        {b.isAllDay && <Text style={bcStyles.allDay}>Tutto il giorno</Text>}
-      </View>
-      <View style={bcStyles.info}>
-        <Text style={bcStyles.title} numberOfLines={1}>{b.title}</Text>
-        <Text style={bcStyles.subtitle} numberOfLines={1}>{b.subtitle}</Text>
-      </View>
-      {isBooked ? (
-        <View style={bcStyles.bookedBadge}>
-          <Text style={bcStyles.bookedBadgeText}>✓ Prenotato</Text>
-        </View>
-      ) : isSelected ? (
-        <View style={bcStyles.draftBadge}>
-          <Text style={bcStyles.draftBadgeText}>Da prenotare</Text>
-        </View>
-      ) : isDraft ? (
-        <View style={bcStyles.draftBadge}>
-          <Text style={bcStyles.draftBadgeText}>Da prenotare</Text>
-        </View>
-      ) : null}
-    </Wrapper>
-  );
-}
-
-const bcStyles = StyleSheet.create({
-  card: { backgroundColor: Colors.white, borderRadius: Radius.sm, borderWidth: 1.5, borderColor: Colors.border, padding: Spacing.sm, flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
-  cardDraft: { backgroundColor: Colors.background, borderColor: Colors.navy + '30' },
-  left: { alignItems: 'center', gap: 3, minWidth: 44 },
-  circle: { width: 38, height: 38, borderRadius: 19, backgroundColor: Colors.navy + '0D', alignItems: 'center', justifyContent: 'center' },
-  circleDraft: { backgroundColor: Colors.navy + '08' },
-  emoji: { fontSize: 18 },
-  time: { fontFamily: FontFamily.bodyBold, fontSize: 10, color: Colors.navy },
-  timeDraft: { color: Colors.text.muted },
-  allDay: { fontFamily: FontFamily.body, fontSize: 9, color: Colors.text.muted },
-  info: { flex: 1, gap: 2 },
-  title: { fontFamily: FontFamily.bodySemiBold, fontSize: FontSize.sm, color: Colors.text.primary },
-  subtitle: { fontFamily: FontFamily.body, fontSize: FontSize.xs, color: Colors.text.secondary },
-  draftBadge: { backgroundColor: Colors.navy + '14', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
-  draftBadgeText: { fontFamily: FontFamily.bodyMedium, fontSize: 10, color: Colors.navy },
-  bookedBadge: { backgroundColor: Colors.teal + '18', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
-  bookedBadgeText: { fontFamily: FontFamily.bodyMedium, fontSize: 10, color: Colors.teal },
-});
 
 // ─── ManualCard ───────────────────────────────────────────────────────────────
 
@@ -712,16 +636,103 @@ const cfgStyles = StyleSheet.create({
   generateBtnText: { fontFamily: FontFamily.bodySemiBold, fontSize: FontSize.lg, color: Colors.white },
 });
 
+// ─── IdeaSlotsSection ─────────────────────────────────────────────────────────
+
+interface IdeaSlotsSectionProps {
+  dayIndex: number;
+  daySuggs: AIActivitySuggestion[];
+  dayManuals: ManualEvent[];
+  editing: EditingState | null;
+  setEditing: (e: EditingState | null) => void;
+  openEditor: (dayIndex: number, slot: typeof SLOT_RANGES[0], existingId?: string, existingManual?: ManualEvent) => void;
+  saveEdit: (title: string, start: string, end: string, attachments: string[]) => void;
+  deleteManual: (dayIndex: number, eventId: string) => void;
+  expandedSuggs: Set<string>;
+  toggleExpanded: (key: string) => void;
+  removedSuggKeys: Set<string>;
+  setRemovedSuggKeys: (fn: (prev: Set<string>) => Set<string>) => void;
+}
+
+function IdeaSlotsSection({
+  dayIndex, daySuggs, dayManuals, editing, setEditing,
+  openEditor, saveEdit, deleteManual,
+  expandedSuggs, toggleExpanded, removedSuggKeys, setRemovedSuggKeys,
+}: IdeaSlotsSectionProps) {
+  const hasManuals = dayManuals.length > 0;
+  const hasSuggs = daySuggs.length > 0;
+  const hasContent = hasManuals || hasSuggs;
+  const [collapsed, setCollapsed] = useState(!hasContent);
+  const wasExpanded = useRef(hasContent);
+
+  // Auto-expand when content appears for the first time
+  useEffect(() => {
+    if (hasContent && !wasExpanded.current) {
+      wasExpanded.current = true;
+      setCollapsed(false);
+    }
+  }, [hasContent]);
+
+  const manualCount = dayManuals.length;
+  const suggCount = daySuggs.length;
+  const chevron = collapsed ? '▸' : '▾';
+  const headerText = hasContent
+    ? `${chevron} Idee e appunti · ${manualCount} ${manualCount === 1 ? 'nota' : 'note'}, ${suggCount} suggerimenti AI`
+    : `${chevron} Idee e appunti`;
+
+  return (
+    <View style={ideaStyles.container}>
+      <Pressable onPress={() => setCollapsed((c) => !c)} style={ideaStyles.header} accessibilityRole="button">
+        <Text style={ideaStyles.headerText}>{headerText}</Text>
+      </Pressable>
+      {!collapsed && (
+        <View style={ideaStyles.content}>
+          {SLOT_RANGES.map((slot) => {
+            const isEditing = editing?.dayIndex === dayIndex && editing.slotId === slot.id;
+            const manual = dayManuals.find((m) => m.slotId === slot.id);
+            if (manual && !isEditing) {
+              return (
+                <ManualCard
+                  key={slot.id}
+                  event={manual}
+                  onEdit={() => openEditor(dayIndex, slot, manual.id, manual)}
+                  onDelete={() => deleteManual(dayIndex, manual.id)}
+                />
+              );
+            }
+            if (isEditing) {
+              return <InlineEditor key={slot.id} editing={editing!} onSave={saveEdit} onCancel={() => setEditing(null)} />;
+            }
+            const sugg = daySuggs.find((s) => TIME_SLOT_TO_SLOT_ID[s.time_slot] === slot.id);
+            if (sugg) {
+              const suggKey = `${dayIndex}-${sugg.time_slot}`;
+              return (
+                <AISuggestionCard
+                  key={slot.id}
+                  suggestion={sugg}
+                  expanded={expandedSuggs.has(suggKey)}
+                  onToggle={() => toggleExpanded(suggKey)}
+                  onRemove={() => setRemovedSuggKeys((prev) => new Set([...prev, suggKey]))}
+                />
+              );
+            }
+            return <EmptySlotRow key={slot.id} label={slot.label} onTap={() => openEditor(dayIndex, slot)} />;
+          })}
+        </View>
+      )}
+    </View>
+  );
+}
+
+const ideaStyles = StyleSheet.create({
+  container: { marginTop: Spacing.sm },
+  header: { paddingVertical: Spacing.xs, minHeight: 36, justifyContent: 'center' },
+  // Fraunces 16pt navy per spec
+  headerText: { fontFamily: FontFamily.displayBold, fontSize: 16, color: Colors.navy },
+  content: { gap: Spacing.sm, paddingTop: Spacing.xs },
+});
+
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
-const ITEM_EMOJI: Record<TripItem['type'], string> = {
-  flight: '✈️', hotel: '🏨', activity: '🎟️', car: '🚗', insurance: '🛡️',
-};
-
-const BOOKING_TYPE_EMOJI: Record<BookingType, string> = {
-  flight: '✈️', hotel: '🏨', activity: '🎟️', car: '🚗',
-  insurance: '🛡️', visa: '🪪', transfer: '🚄',
-};
 
 export default function TripDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -743,10 +754,15 @@ export default function TripDetailScreen() {
   const checkIn = trip?.checkIn ? new Date(trip.checkIn) : new Date(2026, 6, 15);
   const checkOut = trip?.checkOut ? new Date(trip.checkOut) : new Date(2026, 6, 22);
 
-  const msPerDay = 86_400_000;
-  const totalDays = Math.round((checkOut.getTime() - checkIn.getTime()) / msPerDay) + 1;
-
   const updateTrip = useAppStore((s) => s.updateTrip);
+
+  // Migrate legacy trip.items / typed snapshots → bookings[] on first load
+  useEffect(() => {
+    if (!trip || trip.id === 'mock-tokyo-2026') return;
+    if (trip.bookings && trip.bookings.length > 0) return;
+    const migrated = migrateTripToBookings(trip);
+    if (migrated.length > 0) updateTrip(trip.id, { bookings: migrated });
+  }, [trip?.id]);
 
   const [activeTab, setActiveTab] = useState<TripTab>('itinerario');
 
@@ -782,96 +798,10 @@ export default function TripDetailScreen() {
     }
   }, [trip?.itinerary, trip?.multiCityItinerary]);
 
-  const days = useMemo(() => {
+  const timeline = useMemo(() => {
     if (!trip) return [];
-    const fmtDay = (d: Date) => d.toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'short' });
-    const isoDay = (d: Date) => d.toISOString().split('T')[0];
-
-    return Array.from({ length: totalDays }, (_, i) => {
-      const date = new Date(checkIn.getTime() + i * msPerDay);
-      const dayStr = isoDay(date);
-      const dayBookings: BookingDisplay[] = [];
-
-      if (trip.bookings && trip.bookings.length > 0) {
-        // ── New format: BookingItem[] ──────────────────────────────────────────
-        for (const booking of trip.bookings) {
-          if (booking.type === 'insurance' || booking.type === 'visa') continue;
-          const { startDate, endDate, startTime } = booking.timing;
-          let showOnDay = false;
-          if (booking.type === 'hotel') {
-            // Hotel: show check-in on startDate, check-out on endDate
-            showOnDay = startDate === dayStr || endDate === dayStr;
-          } else {
-            showOnDay = startDate === dayStr;
-          }
-          if (!showOnDay) continue;
-
-          const subtitle = booking.type === 'hotel' && booking.hotel
-            ? `${booking.hotel.nights} notti · check-in ${booking.hotel.checkinTime}`
-            : booking.type === 'flight' && booking.flight
-            ? `${booking.flight.origin} → ${booking.flight.destination}`
-            : booking.type === 'transfer' && booking.transfer
-            ? `${booking.transfer.modeLabel} · ${booking.transfer.from} → ${booking.transfer.to}`
-            : booking.provider;
-
-          dayBookings.push({
-            id: booking.id,
-            emoji: BOOKING_TYPE_EMOJI[booking.type],
-            title: booking.title,
-            subtitle,
-            timeLabel: startTime,
-            isAllDay: !startTime,
-            status: booking.status,
-            bookingItemId: booking.id,
-            tripId: trip.id,
-          });
-        }
-      } else {
-        // ── Old format: TripItem[] (fallback) ─────────────────────────────────
-        for (const item of trip.items) {
-          if (item.type === 'insurance') continue;
-          let showOnDay = false;
-          if (item.departureAt) {
-            const d = new Date(item.departureAt);
-            showOnDay = d.getFullYear() === date.getFullYear() && d.getMonth() === date.getMonth() && d.getDate() === date.getDate();
-          } else if (item.type === 'hotel' && i === 0) {
-            showOnDay = true;
-          } else if (item.type === 'car' && i === 0) {
-            showOnDay = true;
-          }
-          if (!showOnDay) continue;
-          let timeLabel: string | undefined;
-          if (item.departureAt) {
-            const d = new Date(item.departureAt);
-            timeLabel = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-          }
-          dayBookings.push({ id: item.id, emoji: ITEM_EMOJI[item.type], title: item.title, subtitle: item.subtitle, timeLabel, isAllDay: !item.departureAt });
-        }
-      }
-
-      // Sort timed events chronologically; all-day events last
-      dayBookings.sort((a, b) => {
-        if (a.isAllDay && !b.isAllDay) return 1;
-        if (!a.isAllDay && b.isAllDay) return -1;
-        return (a.timeLabel ?? '').localeCompare(b.timeLabel ?? '');
-      });
-
-      return { date, dayIndex: i, dayLabel: `Giorno ${i + 1}`, dateLabel: fmtDay(date), bookings: dayBookings };
-    });
-  }, [trip?.id, trip?.bookings, totalDays]);
-
-  const takenSlotsByDay = useMemo<Set<SlotId>[]>(() => {
-    return days.map((day) => {
-      const taken = new Set<SlotId>();
-      for (const b of day.bookings) {
-        if (b.timeLabel) taken.add(getSlotForHour(parseHour(b.timeLabel)));
-      }
-      for (const m of manualByDay[day.dayIndex] ?? []) {
-        taken.add(getSlotForHour(parseHour(m.startTime)));
-      }
-      return taken;
-    });
-  }, [days, manualByDay]);
+    return buildTimeline(trip);
+  }, [trip?.id, trip?.bookings, trip?.checkIn, trip?.checkOut]);
 
   function openEditor(dayIndex: number, slot: (typeof SLOT_RANGES)[0], existingId?: string, existingManual?: ManualEvent) {
     setEditing({ dayIndex, slotId: slot.id, defaultStart: slot.defaultStart, defaultEnd: slot.defaultEnd, existingId, startTime: existingManual?.startTime ?? slot.defaultStart, endTime: existingManual?.endTime ?? slot.defaultEnd, title: existingManual?.title ?? '', attachments: existingManual?.attachments ?? [] });
@@ -992,23 +922,13 @@ export default function TripDetailScreen() {
     const validCurrencies: Currency[] = ['EUR', 'USD', 'GBP', 'JPY'];
     const currency: Currency = validCurrencies.includes(trip.currency as Currency) ? (trip.currency as Currency) : 'EUR';
     let cartItems: CartItem[];
-    if (trip.bookings && trip.bookings.length > 0) {
-      cartItems = trip.bookings.map((b) => ({
-        type: b.type as import('../../src/types/booking').CartItemType,
-        offerId: b.id,
-        name: b.title,
-        price: b.price,
-        currency,
-      }));
-    } else {
-      cartItems = trip.items.map((item) => ({
-        type: item.type,
-        offerId: item.id.replace(`${item.type}-`, ''),
-        name: item.title,
-        price: item.price,
-        currency,
-      }));
-    }
+    cartItems = (trip.bookings ?? []).map((b) => ({
+      type: b.type as import('../../src/types/booking').CartItemType,
+      offerId: b.id,
+      name: b.title,
+      price: b.price,
+      currency,
+    }));
     const searchParams: SearchParams = {
       origin: trip.origin ?? 'Milano, Italia',
       originCode: trip.originCode ?? 'MXP',
@@ -1028,11 +948,7 @@ export default function TripDetailScreen() {
     if (!trip) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     let itemIds: { type: CartItemType; offerId: string }[];
-    if (trip.bookings && trip.bookings.length > 0) {
-      itemIds = trip.bookings.map((b) => ({ type: b.type as CartItemType, offerId: b.id }));
-    } else {
-      itemIds = trip.items.map((item) => ({ type: item.type, offerId: item.id.replace(`${item.type}-`, '') }));
-    }
+    itemIds = (trip.bookings ?? []).map((b) => ({ type: b.type as CartItemType, offerId: b.id }));
     // Sync booking store from trip so search screen restores correctly
     const { useBookingStore } = require('../../src/stores/useBookingStore') as { useBookingStore: { getState: () => { loadFromTrip: (t: Trip) => void } } };
     useBookingStore.getState().loadFromTrip(trip);
@@ -1084,23 +1000,7 @@ export default function TripDetailScreen() {
 
   const draftBarHeight = isDraft ? 100 : 0;
 
-  const bookingCount = (() => {
-    if (trip.bookings && trip.bookings.length > 0) {
-      return trip.bookings.filter((b) => b.type !== 'insurance' && b.type !== 'visa').length;
-    }
-    let n = (trip.flightOutbound ? 1 : 0) + (trip.flightReturn ? 1 : 0)
-      + (trip.selectedCar ? 1 : 0)
-      + (trip.selectedInsurancePlan ? 1 : 0);
-    if (trip.isMultiCity && trip.cityStops) {
-      for (const s of trip.cityStops) {
-        if (s.selectedHotel) n += 1;
-        n += s.selectedActivities.length;
-      }
-    } else {
-      n += trip.items.filter((i) => i.type === 'hotel' || i.type === 'activity').length;
-    }
-    return n;
-  })();
+  const bookingCount = (trip.bookings ?? []).filter((b) => b.type !== 'insurance' && b.type !== 'visa').length;
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
@@ -1136,12 +1036,12 @@ export default function TripDetailScreen() {
           keyboardShouldPersistTaps="handled"
         >
           {trip.isMultiCity && trip.cityStops ? (() => {
-            // Multi-city render: CitySectionHeader + per-city days + TransferBanner between cities
+            // Multi-city render: CitySectionHeader + per-city timeline days + TransferBanner between cities
             let globalDay = 0;
             return trip.cityStops.map((stop, cityIdx) => {
               const cityGlobalStart = globalDay + 1;
               const cityGlobalEnd = globalDay + stop.nights;
-              const cityDays = days.slice(globalDay, globalDay + stop.nights);
+              const cityTimelineDays = timeline.slice(globalDay, globalDay + stop.nights);
               const transport = trip.transportSuggestions?.find(
                 (t) => t.from.toLowerCase() === stop.name.toLowerCase()
               );
@@ -1155,55 +1055,32 @@ export default function TripDetailScreen() {
                     globalDayEnd={cityGlobalEnd}
                   />
 
-                  {cityDays.map((day) => {
-                    const localDayIdx = day.dayIndex - (cityGlobalStart - 1);
+                  {cityTimelineDays.map((timelineDay, localDayIdx) => {
+                    const dayIndex = timelineDay.dayNumber - 1;
                     const aiSuggs = multiCityItinerary?.cities[cityIdx]?.days[localDayIdx]?.suggestions ?? [];
-                    const dayManuals = manualByDay[day.dayIndex] ?? [];
+                    const dayManuals = manualByDay[dayIndex] ?? [];
                     const daySuggs = aiSuggs.filter((s) => {
-                      const key = `${day.dayIndex}-${s.time_slot}`;
+                      const key = `${dayIndex}-${s.time_slot}`;
                       return !removedSuggKeys.has(key);
                     });
-                    const allDayBookings = day.bookings.filter((b) => b.isAllDay);
-                    const timedBookings = day.bookings.filter((b) => !b.isAllDay);
 
                     return (
-                      <View key={day.dayIndex} style={styles.dayBlock}>
-                        <View style={styles.dayHeader}>
-                          <Text style={styles.dayLabel}>{day.dayLabel}</Text>
-                          <Text style={styles.dateLabel}>{day.dateLabel}</Text>
-                        </View>
-
-                        {day.bookings.length > 0 && (
-                          <Pressable
-                            style={({ pressed }) => [styles.dayBookingIndicator, pressed && { opacity: 0.7 }]}
-                            onPress={() => setActiveTab('prenotazioni')}
-                          >
-                            <Text style={styles.dayBookingIndicatorText}>
-                              📌 {day.bookings.length} {day.bookings.length === 1 ? 'prenotazione' : 'prenotazioni'} oggi · Vedi →
-                            </Text>
-                          </Pressable>
-                        )}
-
-                        {allDayBookings.map((b) => <BookingCard key={b.id} b={b} isDraft={isDraft} />)}
-
-                        {SLOT_RANGES.map((slot) => {
-                          const isEditing = editing?.dayIndex === day.dayIndex && editing.slotId === slot.id;
-                          const booking = timedBookings.find((b) => b.timeLabel && getSlotForHour(parseHour(b.timeLabel)) === slot.id);
-                          if (booking) return <BookingCard key={slot.id} b={booking} isDraft={isDraft} />;
-                          const manual = dayManuals.find((m) => m.slotId === slot.id);
-                          if (manual && !isEditing) {
-                            return <ManualCard key={slot.id} event={manual} onEdit={() => openEditor(day.dayIndex, slot, manual.id, manual)} onDelete={() => deleteManual(day.dayIndex, manual.id)} />;
-                          }
-                          if (isEditing) {
-                            return <InlineEditor key={slot.id} editing={editing!} onSave={saveEdit} onCancel={() => setEditing(null)} />;
-                          }
-                          const sugg = daySuggs.find((s) => TIME_SLOT_TO_SLOT_ID[s.time_slot] === slot.id);
-                          if (sugg) {
-                            const suggKey = `${day.dayIndex}-${sugg.time_slot}`;
-                            return <AISuggestionCard key={slot.id} suggestion={sugg} expanded={expandedSuggs.has(suggKey)} onToggle={() => toggleExpanded(suggKey)} onRemove={() => setRemovedSuggKeys((prev) => new Set([...prev, suggKey]))} />;
-                          }
-                          return <EmptySlotRow key={slot.id} label={slot.label} onTap={() => openEditor(day.dayIndex, slot)} />;
-                        })}
+                      <View key={timelineDay.date} style={styles.dayBlock}>
+                        <TimelineDaySection day={timelineDay} tripId={trip.id} />
+                        <IdeaSlotsSection
+                          dayIndex={dayIndex}
+                          daySuggs={daySuggs}
+                          dayManuals={dayManuals}
+                          editing={editing}
+                          setEditing={setEditing}
+                          openEditor={openEditor}
+                          saveEdit={saveEdit}
+                          deleteManual={deleteManual}
+                          expandedSuggs={expandedSuggs}
+                          toggleExpanded={toggleExpanded}
+                          removedSuggKeys={removedSuggKeys}
+                          setRemovedSuggKeys={setRemovedSuggKeys}
+                        />
                       </View>
                     );
                   })}
@@ -1215,54 +1092,34 @@ export default function TripDetailScreen() {
                 </View>
               );
             });
-          })() : days.map((day) => {
-            const dayManuals = manualByDay[day.dayIndex] ?? [];
-            const daySuggs = (suggestionsByDay[day.dayIndex] ?? []).filter((s) => {
-              const key = `${day.dayIndex}-${s.time_slot}`;
+          })() : timeline.map((timelineDay) => {
+            const dayIndex = timelineDay.dayNumber - 1;
+            const dayManuals = manualByDay[dayIndex] ?? [];
+            const daySuggs = (suggestionsByDay[dayIndex] ?? []).filter((s) => {
+              const key = `${dayIndex}-${s.time_slot}`;
               return !removedSuggKeys.has(key);
             });
-            const allDayBookings = day.bookings.filter((b) => b.isAllDay);
-            const timedBookings = day.bookings.filter((b) => !b.isAllDay);
 
             return (
-              <View key={day.dayIndex} style={styles.dayBlock}>
-                <View style={styles.dayHeader}>
-                  <Text style={styles.dayLabel}>{day.dayLabel}</Text>
-                  <Text style={styles.dateLabel}>{day.dateLabel}</Text>
-                </View>
-
-                {day.bookings.length > 0 && (
-                  <Pressable
-                    style={({ pressed }) => [styles.dayBookingIndicator, pressed && { opacity: 0.7 }]}
-                    onPress={() => setActiveTab('prenotazioni')}
-                  >
-                    <Text style={styles.dayBookingIndicatorText}>
-                      📌 {day.bookings.length} {day.bookings.length === 1 ? 'prenotazione' : 'prenotazioni'} oggi · Vedi →
-                    </Text>
-                  </Pressable>
-                )}
-
-                {allDayBookings.map((b) => <BookingCard key={b.id} b={b} isDraft={isDraft} />)}
-
-                {SLOT_RANGES.map((slot) => {
-                  const isEditing = editing?.dayIndex === day.dayIndex && editing.slotId === slot.id;
-                  const booking = timedBookings.find((b) => b.timeLabel && getSlotForHour(parseHour(b.timeLabel)) === slot.id);
-                  if (booking) return <BookingCard key={slot.id} b={booking} isDraft={isDraft} />;
-
-                  const manual = dayManuals.find((m) => m.slotId === slot.id);
-                  if (manual && !isEditing) {
-                    return <ManualCard key={slot.id} event={manual} onEdit={() => openEditor(day.dayIndex, slot, manual.id, manual)} onDelete={() => deleteManual(day.dayIndex, manual.id)} />;
-                  }
-                  if (isEditing) {
-                    return <InlineEditor key={slot.id} editing={editing!} onSave={saveEdit} onCancel={() => setEditing(null)} />;
-                  }
-                  const sugg = daySuggs.find((s) => TIME_SLOT_TO_SLOT_ID[s.time_slot] === slot.id);
-                  if (sugg) {
-                    const suggKey = `${day.dayIndex}-${sugg.time_slot}`;
-                    return <AISuggestionCard key={slot.id} suggestion={sugg} expanded={expandedSuggs.has(suggKey)} onToggle={() => toggleExpanded(suggKey)} onRemove={() => setRemovedSuggKeys((prev) => new Set([...prev, suggKey]))} />;
-                  }
-                  return <EmptySlotRow key={slot.id} label={slot.label} onTap={() => openEditor(day.dayIndex, slot)} />;
-                })}
+              <View key={timelineDay.date} style={styles.dayBlock}>
+                {/* TODO(notes-volatility): manualByDay is useState — notes are lost on
+                    component unmount. Photos saved to FileSystem become orphaned on disk.
+                    Persist notes to AsyncStorage or SQLite in a future step. */}
+                <TimelineDaySection day={timelineDay} tripId={trip.id} />
+                <IdeaSlotsSection
+                  dayIndex={dayIndex}
+                  daySuggs={daySuggs}
+                  dayManuals={dayManuals}
+                  editing={editing}
+                  setEditing={setEditing}
+                  openEditor={openEditor}
+                  saveEdit={saveEdit}
+                  deleteManual={deleteManual}
+                  expandedSuggs={expandedSuggs}
+                  toggleExpanded={toggleExpanded}
+                  removedSuggKeys={removedSuggKeys}
+                  setRemovedSuggKeys={setRemovedSuggKeys}
+                />
               </View>
             );
           })}
@@ -1354,9 +1211,6 @@ const styles = StyleSheet.create({
   draftPillText: { fontFamily: FontFamily.bodySemiBold, fontSize: FontSize.xs, color: Colors.navy },
   content: { padding: Spacing.lg, gap: Spacing.xl },
   dayBlock: { gap: Spacing.sm },
-  dayHeader: { flexDirection: 'row', alignItems: 'baseline', gap: Spacing.sm, paddingBottom: Spacing.xs },
-  dayLabel: { fontFamily: FontFamily.displayBold, fontSize: FontSize.lg, color: Colors.text.primary },
-  dateLabel: { fontFamily: FontFamily.body, fontSize: FontSize.sm, color: Colors.text.muted },
   ctaArea: { marginTop: Spacing.sm },
   generateBtn: { backgroundColor: Colors.accent, borderRadius: Radius.md, paddingVertical: 16, alignItems: 'center', shadowColor: Colors.accent, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 12, elevation: 4, minHeight: 52, justifyContent: 'center' },
   generateBtnText: { fontFamily: FontFamily.bodySemiBold, fontSize: FontSize.lg, color: Colors.white },
@@ -1380,17 +1234,4 @@ const styles = StyleSheet.create({
   notFound: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   notFoundText: { fontFamily: FontFamily.body, fontSize: FontSize.md, color: Colors.text.muted },
   hidden: { display: 'none' },
-  dayBookingIndicator: {
-    backgroundColor: Colors.teal + '10',
-    borderRadius: Radius.sm,
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 6,
-    borderWidth: 1,
-    borderColor: Colors.teal + '30',
-  },
-  dayBookingIndicatorText: {
-    fontFamily: FontFamily.bodyMedium,
-    fontSize: FontSize.xs,
-    color: Colors.teal,
-  },
 });
