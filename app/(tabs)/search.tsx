@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect, useRef, useCallback } from 'react';
-import { View, Text, ScrollView, ActivityIndicator, StyleSheet, Modal, TextInput, Pressable, LayoutAnimation, Platform, UIManager } from 'react-native';
+import { View, Text, ScrollView, ActivityIndicator, StyleSheet, Modal, TextInput, Pressable, LayoutAnimation, Platform, UIManager, Alert } from 'react-native';
 
 if (Platform.OS === 'android') {
   UIManager.setLayoutAnimationEnabledExperimental?.(true);
@@ -467,10 +467,12 @@ export default function SearchScreen() {
   const setMultiCityMode = useBookingStore((s) => s.setMultiCity);
   const setCityStops = useBookingStore((s) => s.setCityStops);
   const updateTrip = useAppStore((s) => s.updateTrip);
+  const storeTrips = useAppStore((s) => s.trips);
   const onboardingData = useAppStore((s) => s.onboardingData);
 
   // ─── Booking store (single source of truth for selections) ────────────────
   const storeBookings = useBookingStore((s) => s.bookings);
+  const currentTripId = useBookingStore((s) => s.currentTripId);
   const replaceFlightByDirection = useBookingStore((s) => s.replaceFlightByDirection);
   const removeFlightByDirection = useBookingStore((s) => s.removeFlightByDirection);
   const replaceBookingByType = useBookingStore((s) => s.replaceBookingByType);
@@ -478,8 +480,12 @@ export default function SearchScreen() {
   const addBooking = useBookingStore((s) => s.addBooking);
   const removeBooking = useBookingStore((s) => s.removeBooking);
   const clearBookings = useBookingStore((s) => s.clearBookings);
+  const setCurrentTripId = useBookingStore((s) => s.setCurrentTripId);
   const setStoreSearchParams = useBookingStore((s) => s.setSearchParams);
   const saveDraftFromStore = useBookingStore((s) => s.saveDraft);
+
+  // Trip being edited (if currentTripId is set)
+  const editingDraft = currentTripId ? storeTrips.find((t) => t.id === currentTripId) ?? null : null;
 
   const [params, setParams] = useState<SearchParams>(DEFAULT_SEARCH_PARAMS);
   const [hasSearched, setHasSearched] = useState(false);
@@ -582,7 +588,7 @@ export default function SearchScreen() {
     }, [pendingDraftRestore]),
   );
 
-  const handleSearch = async () => {
+  const doSearch = async () => {
     setIsSearching(true);
     setIsFlightsLoading(true);
     setIsHotelsLoading(true);
@@ -597,7 +603,6 @@ export default function SearchScreen() {
     setSelectedInsurance(null);
     setSelectedOutboundKey(null);
     setSelectedReturnKey(null);
-    // Sync search params and clear previous selections in the booking store
     setStoreSearchParams(params);
     clearBookings();
     setShowAllOutbound(false);
@@ -671,6 +676,81 @@ export default function SearchScreen() {
       });
 
     await Promise.allSettled([flightPromise, hotelPromise, activitiesPromise]);
+  };
+
+  const handleSearch = () => {
+    const hasSelections = storeBookings.length > 0;
+
+    // Case 1: editing a draft and destination/dates changed
+    if (editingDraft) {
+      const destChanged = params.destination !== editingDraft.destination;
+      const checkInChanged = params.checkIn.toISOString().split('T')[0] !== editingDraft.checkIn?.split('T')[0];
+      const checkOutChanged = params.checkOut.toISOString().split('T')[0] !== editingDraft.checkOut?.split('T')[0];
+      if (destChanged || checkInChanged || checkOutChanged) {
+        Alert.alert(
+          `Stai modificando: ${editingDraft.name}`,
+          'Cambiare destinazione o date creerà un viaggio separato. La bozza originale non sarà modificata.',
+          [
+            {
+              text: 'Crea nuovo viaggio',
+              onPress: () => {
+                setCurrentTripId(undefined);
+                doSearch();
+              },
+            },
+            {
+              text: 'Mantieni bozza originale',
+              style: 'destructive',
+              onPress: () => {
+                // Reset params to match the draft and search with those
+                const draftParams: SearchParams = {
+                  origin: editingDraft.origin ?? '',
+                  originCode: editingDraft.originCode ?? '',
+                  destination: editingDraft.destination,
+                  destinationCode: editingDraft.destinationCode,
+                  checkIn: editingDraft.checkIn ? new Date(editingDraft.checkIn) : params.checkIn,
+                  checkOut: editingDraft.checkOut ? new Date(editingDraft.checkOut) : params.checkOut,
+                  travelers: editingDraft.travelers,
+                };
+                setParams(draftParams);
+                // doSearch will use the updated params on next call — inform user
+                setToastMessage('Parametri ripristinati dalla bozza');
+                setToastVisible(true);
+              },
+            },
+            { text: 'Annulla', style: 'cancel' },
+          ],
+        );
+        return;
+      }
+    }
+
+    // Case 2: unsaved selections in a fresh search (no currentTripId)
+    if (!editingDraft && hasSelections) {
+      Alert.alert(
+        'Selezioni non salvate',
+        `Hai ${storeBookings.length} ${storeBookings.length === 1 ? 'selezione' : 'selezioni'} non salvate. Cosa vuoi fare?`,
+        [
+          {
+            text: 'Salva come bozza',
+            onPress: () => {
+              setStoreSearchParams(params);
+              saveDraftFromStore(params.destination.split(',')[0]);
+              doSearch();
+            },
+          },
+          {
+            text: 'Scarta',
+            style: 'destructive',
+            onPress: () => doSearch(),
+          },
+          { text: 'Annulla', style: 'cancel' },
+        ],
+      );
+      return;
+    }
+
+    doSearch();
   };
 
   const toggleActivity = (id: string) => {
@@ -780,15 +860,29 @@ export default function SearchScreen() {
 
   const fmt = (d: Date) => d.toLocaleDateString('it-IT', { day: 'numeric', month: 'short', year: 'numeric' });
 
-  const handleSaveDraft = (name: string) => {
+  const handleSaveDraft = (name?: string) => {
     if (!results) return;
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
-    // Ensure store has up-to-date search params before saving
-    setStoreSearchParams(params);
-    const savedTrip = saveDraftFromStore(name);
+    if (editingDraft) {
+      // Update existing draft — preserve id, createdAt; merge bookings
+      updateTrip(editingDraft.id, {
+        bookings: storeBookings,
+        ...(results.visa ? { visaInfo: results.visa } : {}),
+      });
+      setShowDraftModal(false);
+      setToastMessage('Bozza aggiornata!');
+      setToastVisible(true);
+      toastTimerRef.current = setTimeout(() => {
+        setToastVisible(false);
+        router.replace('/(tabs)/trips');
+      }, 1800);
+      return;
+    }
 
-    // Patch visaInfo (not a bookable item — stored as a Trip field)
+    // New draft
+    setStoreSearchParams(params);
+    const savedTrip = saveDraftFromStore(name ?? params.destination.split(',')[0]);
     if (results.visa) updateTrip(savedTrip.id, { visaInfo: results.visa });
 
     setShowDraftModal(false);
@@ -1179,10 +1273,11 @@ export default function SearchScreen() {
           items={cartItems}
           totalPrice={totalPrice}
           currency="EUR"
-          onSaveDraft={() => setShowDraftModal(true)}
+          isDraftUpdate={!!editingDraft}
+          draftName={editingDraft?.name}
+          onSaveDraft={() => editingDraft ? handleSaveDraft() : setShowDraftModal(true)}
           onCheckout={() => {
             if (!results) return;
-            // Use store bookings for checkout (richer data than CartItem)
             initCheckout(cartItems, totalPrice, 'EUR', results.params, results);
             router.push('/checkout/summary');
           }}

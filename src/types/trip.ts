@@ -33,15 +33,20 @@ export interface Trip {
   travelers: number;
   totalPrice: number;
   currency: string;
+  /** @deprecated use bookings[] instead */
   items: TripItem[];
   bookingRef: string;
   createdAt: string;
+  updatedAt?: string;
   bookedAt?: string;
   itinerary?: AIItinerary;
-  // Typed offer snapshots (populated on save/book)
+  /** @deprecated use bookings[] instead */
   flightOutbound?: FlightDirectionGroup;
+  /** @deprecated use bookings[] instead */
   flightReturn?: FlightDirectionGroup;
+  /** @deprecated use bookings[] instead */
   selectedCar?: CarOffer;
+  /** @deprecated use bookings[] instead */
   selectedInsurancePlan?: InsurancePlan;
   visaInfo?: VisaInfo;
   // Multi-city

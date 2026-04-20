@@ -16,9 +16,11 @@ interface Props {
   currency: string;
   onCheckout: () => void;
   onSaveDraft: () => void;
+  isDraftUpdate?: boolean;
+  draftName?: string;
 }
 
-export function CartBar({ items, totalPrice, currency, onCheckout, onSaveDraft }: Props) {
+export function CartBar({ items, totalPrice, currency, onCheckout, onSaveDraft, isDraftUpdate = false, draftName }: Props) {
   const count = items.length;
   const translateY = useSharedValue(80);
   const opacity = useSharedValue(0);
@@ -46,6 +48,11 @@ export function CartBar({ items, totalPrice, currency, onCheckout, onSaveDraft }
   return (
     <Animated.View style={[styles.container, containerStyle]}>
       <View style={styles.info}>
+        {isDraftUpdate && draftName ? (
+          <Text style={styles.draftLabel} numberOfLines={1}>
+            ✏️ {draftName}
+          </Text>
+        ) : null}
         <Text style={styles.count}>
           {count} {count === 1 ? 'elemento' : 'elementi'}
         </Text>
@@ -58,9 +65,9 @@ export function CartBar({ items, totalPrice, currency, onCheckout, onSaveDraft }
           style={({ pressed }) => [styles.btnOutline, pressed && styles.btnOutlinePressed]}
           onPress={handleSaveDraft}
           accessibilityRole="button"
-          accessibilityLabel="Salva viaggio come bozza"
+          accessibilityLabel={isDraftUpdate ? 'Aggiorna bozza' : 'Salva viaggio come bozza'}
         >
-          <Text style={styles.btnOutlineText}>💾 Salva</Text>
+          <Text style={styles.btnOutlineText}>{isDraftUpdate ? '🔄 Aggiorna' : '💾 Salva'}</Text>
         </Pressable>
         <Pressable
           style={({ pressed }) => [styles.btnFill, pressed && styles.btnFillPressed]}
@@ -87,6 +94,11 @@ const styles = StyleSheet.create({
   info: {
     flex: 1,
     gap: 2,
+  },
+  draftLabel: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: FontSize.xs,
+    color: Colors.accent,
   },
   count: {
     fontFamily: FontFamily.body,

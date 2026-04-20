@@ -48,6 +48,8 @@ interface BookingStore {
 
   clearBookings(): void;
 
+  setCurrentTripId(id: string | undefined): void;
+
   // Multi-city
   setMultiCity(enabled: boolean): void;
   setCityStops(stops: CityStop[], transport?: TransportSuggestion[]): void;
@@ -158,6 +160,8 @@ export const useBookingStore = create<BookingStore>()(
       })),
 
       clearBookings: () => set({ bookings: [], currentTripId: undefined }),
+
+      setCurrentTripId: (id) => set({ currentTripId: id }),
 
       // ── Multi-city ─────────────────────────────────────────────────────────
       setMultiCity: (enabled) => set({ isMultiCity: enabled }),
@@ -342,13 +346,12 @@ export const useBookingStore = create<BookingStore>()(
     {
       name: 'voyageur-booking-store',
       storage: createJSONStorage(() => AsyncStorage),
-      // Only persist bookings and multi-city state; searchParams has non-serializable Date
+      // Only persist multi-city UI state for convenience; bookings and currentTripId
+      // are ephemeral (session-only) — they reset on app restart.
       partialize: (s) => ({
-        bookings: s.bookings,
         isMultiCity: s.isMultiCity,
         cityStops: s.cityStops,
         transportSuggestions: s.transportSuggestions,
-        currentTripId: s.currentTripId,
       }),
     },
   ),

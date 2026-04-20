@@ -88,7 +88,11 @@ export const useAppStore = create<AppState>()(
         set((state) => ({ trips: [trip, ...state.trips] })),
       updateTrip: (id, updates) =>
         set((state) => ({
-          trips: state.trips.map((t) => t.id === id ? { ...t, ...updates } : t),
+          trips: state.trips.map((t) =>
+            t.id === id
+              ? { ...t, ...updates, createdAt: t.createdAt, updatedAt: new Date().toISOString() }
+              : t
+          ),
         })),
       deleteTrip: (id) =>
         set((state) => ({ trips: state.trips.filter((t) => t.id !== id) })),
