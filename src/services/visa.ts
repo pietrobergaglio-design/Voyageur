@@ -229,6 +229,16 @@ const STATUS_REQUIREMENTS: Record<VisaStatus, string[]> = {
   required: ['Passaporto valido (almeno 6 mesi)', 'Foto formato tessera', 'Estratto conto bancario', 'Prenotazione hotel', 'Lettera di invito (se richiesta)', 'Modulo di domanda compilato'],
 };
 
+// Official government portals only — leave undefined rather than link to third-party sites
+const APPLY_LINKS: Partial<Record<string, string>> = {
+  india: 'https://indianvisaonline.gov.in/evisa/tvoa.do',
+  australia: 'https://immi.homeaffairs.gov.au/visas/getting-a-visa/visa-listing/electronic-travel-authority-601',
+  usa: 'https://esta.cbp.dhs.gov',
+  uk: 'https://www.gov.uk/get-electronic-travel-authorisation',
+  canada: 'https://www.canada.ca/en/immigration-refugees-citizenship/services/visit-canada/eta/apply.html',
+  vietnam: 'https://evisa.xuatnhapcanh.gov.vn',
+};
+
 const EVISA_FEES: Record<string, { fee: number; days: number }> = {
   india: { fee: 25, days: 3 },
   australia: { fee: 20, days: 1 },
@@ -284,5 +294,6 @@ export function getVisaInfo(destination: string, nationality: string): VisaInfo 
     processingDays: feeInfo?.days,
     fee: feeInfo?.fee && feeInfo.fee > 0 ? feeInfo.fee : undefined,
     feeCurrency: feeInfo?.fee && feeInfo.fee > 0 ? 'USD' : undefined,
+    applyLink: destKey ? APPLY_LINKS[destKey] : undefined,
   };
 }

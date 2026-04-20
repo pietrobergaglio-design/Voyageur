@@ -391,6 +391,9 @@ function normalizeHotel(
     zone,
     stars,
     propertyType,
+    coordinates: p.latitude != null && p.longitude != null
+      ? { lat: p.latitude, lng: p.longitude }
+      : undefined,
     thumbnailUrl,
     photoUrls: largePhotos,
     rating,

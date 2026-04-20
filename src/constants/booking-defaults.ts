@@ -1,0 +1,4 @@
+export const HOTEL_DEFAULT_CHECKIN_TIME = '15:00';
+export const HOTEL_DEFAULT_CHECKOUT_TIME = '11:00';
+export const CAR_DEFAULT_PICKUP_TIME = '10:00';
+export const CAR_DEFAULT_RETURN_TIME = '10:00';

@@ -15,6 +15,12 @@ import type {
   BookingType,
   TimeOfDay,
 } from '../types/booking';
+import {
+  HOTEL_DEFAULT_CHECKIN_TIME,
+  HOTEL_DEFAULT_CHECKOUT_TIME,
+  CAR_DEFAULT_PICKUP_TIME,
+  CAR_DEFAULT_RETURN_TIME,
+} from '../constants/booking-defaults';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -126,11 +132,17 @@ export function flightDirectionGroupToBookingItem(
   const timeOfDay = isNaN(depHour) ? undefined : timeOfDayFromHour(depHour);
 
   const stops = group.stops > 0
-    ? group.segments.slice(0, -1).map((seg) => ({
-        location: seg.destination,
-        locationName: iataToCity(seg.destination),
-        durationMin: 0, // layover duration not available in FlightDirectionGroup
-      }))
+    ? group.segments.slice(0, -1).map((seg, i) => {
+        const nextSeg = group.segments[i + 1];
+        const layoverMs = nextSeg
+          ? new Date(nextSeg.departureAt).getTime() - new Date(seg.arrivalAt).getTime()
+          : 0;
+        return {
+          location: seg.destination,
+          locationName: iataToCity(seg.destination),
+          durationMin: Math.max(0, Math.round(layoverMs / 60_000)),
+        };
+      })
     : [];
 
   const hasChecked = offer?.baggageIncluded ?? false;
@@ -175,6 +187,7 @@ export function flightDirectionGroupToBookingItem(
       originName: iataToCity(firstSeg.origin),
       destination: lastSeg.destination,
       destinationName: iataToCity(lastSeg.destination),
+      direction,
       stops,
       baggage: {
         cabin: hasCabin,
@@ -210,16 +223,17 @@ export function hotelOfferToBookingItem(
     timing: {
       startDate: dateStringFromIso(params.checkIn.toISOString()),
       endDate: dateStringFromIso(params.checkOut.toISOString()),
-      startTime: '15:00',
-      endTime: '11:00',
+      startTime: HOTEL_DEFAULT_CHECKIN_TIME,
+      endTime: HOTEL_DEFAULT_CHECKOUT_TIME,
       timeOfDay: 'afternoon',
       duration: `${nights} nott${nights === 1 ? 'e' : 'i'}`,
     },
     hotel: {
       address: hotel.zone ?? '',
+      coordinates: hotel.coordinates,
       amenities: hotel.amenities ?? [],
-      checkinTime: '15:00',
-      checkoutTime: '11:00',
+      checkinTime: HOTEL_DEFAULT_CHECKIN_TIME,
+      checkoutTime: HOTEL_DEFAULT_CHECKOUT_TIME,
       nights,
     },
     refund,
@@ -296,16 +310,16 @@ export function carOfferToBookingItem(
     timing: {
       startDate: pickupDate,
       endDate: returnDate,
-      startTime: '10:00',
+      startTime: CAR_DEFAULT_PICKUP_TIME,
       duration: `${car.days} giorn${car.days === 1 ? 'o' : 'i'}`,
     },
     car: {
       company: car.company,
       carType: car.category,
       pickupLocation: car.pickupLocation,
-      pickupTime: '10:00',
+      pickupTime: CAR_DEFAULT_PICKUP_TIME,
       returnLocation: car.pickupLocation,
-      returnTime: '10:00',
+      returnTime: CAR_DEFAULT_RETURN_TIME,
     },
     refund: refundFromPolicy(car.refundPolicy),
     rawData: car.rawOffer,
@@ -340,7 +354,7 @@ export function insurancePlanToBookingItem(
     insurance: {
       plan: PLAN_MAP[plan.planType],
       coverage: plan.coverageItems ?? [],
-      medicalLimit: plan.planType === 'premium' ? 500_000 : plan.planType === 'plus' ? 250_000 : 100_000,
+      medicalLimit: plan.planType === 'premium' ? 1_000_000 : plan.planType === 'plus' ? 500_000 : 100_000,
     },
     refund: {
       refundable: true,

@@ -74,6 +74,7 @@ export interface HotelOffer {
   zone: string;
   stars: 0 | 1 | 2 | 3 | 4 | 5;
   propertyType: PropertyType;
+  coordinates?: { lat: number; lng: number };
   thumbnailUrl?: string;
   photoUrls?: string[];
   rating?: number;
