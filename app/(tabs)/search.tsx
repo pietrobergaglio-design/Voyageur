@@ -461,12 +461,11 @@ export default function SearchScreen() {
   const initCheckout = useCheckoutStore((s) => s.initCheckout);
   const pendingDraftRestore = useCheckoutStore((s) => s.pendingDraftRestore);
   const setPendingDraftRestore = useCheckoutStore((s) => s.setPendingDraftRestore);
-  const multiCityMode = useCheckoutStore((s) => s.multiCityMode);
-  const cityStops = useCheckoutStore((s) => s.cityStops);
-  const transportSuggestions = useCheckoutStore((s) => s.transportSuggestions);
-  const setMultiCityMode = useCheckoutStore((s) => s.setMultiCityMode);
-  const setCityStops = useCheckoutStore((s) => s.setCityStops);
-  const clearMultiCity = useCheckoutStore((s) => s.clearMultiCity);
+  const multiCityMode = useBookingStore((s) => s.isMultiCity);
+  const cityStops = useBookingStore((s) => s.cityStops);
+  const transportSuggestions = useBookingStore((s) => s.transportSuggestions);
+  const setMultiCityMode = useBookingStore((s) => s.setMultiCity);
+  const setCityStops = useBookingStore((s) => s.setCityStops);
   const updateTrip = useAppStore((s) => s.updateTrip);
   const onboardingData = useAppStore((s) => s.onboardingData);
 
@@ -940,7 +939,7 @@ export default function SearchScreen() {
                     pressed && { opacity: 0.75 },
                   ]}
                   onPress={() => {
-                    if (multiCityMode) { clearMultiCity(); } else { setShowMultiCityPanel(true); }
+                    if (multiCityMode) { setMultiCityMode(false); setCityStops([], []); } else { setShowMultiCityPanel(true); }
                   }}
                 >
                   <Text style={[styles.multiCityChipText, multiCityMode && styles.multiCityChipTextActive]}>

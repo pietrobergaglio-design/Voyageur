@@ -7,7 +7,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 
-import { useCheckoutStore } from '../../src/stores/useCheckoutStore';
+import { useBookingStore } from '../../src/stores/useBookingStore';
 import { useAppStore } from '../../src/stores/useAppStore';
 import { searchHotels } from '../../src/services/booking';
 import { searchActivities } from '../../src/services/activities';
@@ -29,10 +29,8 @@ export default function CityPage() {
   const insets = useSafeAreaInsets();
   const onboardingData = useAppStore((s) => s.onboardingData);
 
-  const cityStop = useCheckoutStore((s) => s.cityStops.find((c) => c.id === id));
-  const selectHotelForCity = useCheckoutStore((s) => s.selectHotelForCity);
-  const addActivityToCity = useCheckoutStore((s) => s.addActivityToCity);
-  const removeActivityFromCity = useCheckoutStore((s) => s.removeActivityFromCity);
+  const cityStop = useBookingStore((s) => s.cityStops.find((c) => c.id === id));
+  const updateCityStop = useBookingStore((s) => s.updateCityStop);
 
   const [activeTab, setActiveTab] = useState<Tab>('hotel');
   const [hotels, setHotels] = useState<HotelOffer[]>([]);
@@ -116,15 +114,15 @@ export default function CityPage() {
 
   const handleSelectHotel = (hotel: HotelOffer) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    selectHotelForCity(cityStop.id, hotel);
+    updateCityStop(cityStop.id, { selectedHotel: hotel });
   };
 
   const handleToggleActivity = (activity: ActivityOffer) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     if (selectedActivityIds.includes(activity.id)) {
-      removeActivityFromCity(cityStop.id, activity.id);
+      updateCityStop(cityStop.id, { selectedActivities: cityStop.selectedActivities.filter((a) => a.id !== activity.id) });
     } else {
-      addActivityToCity(cityStop.id, activity);
+      updateCityStop(cityStop.id, { selectedActivities: [...cityStop.selectedActivities, activity] });
     }
   };
 
