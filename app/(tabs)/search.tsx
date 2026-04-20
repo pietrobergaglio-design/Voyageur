@@ -10,6 +10,7 @@ import { useFocusEffect } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { useCheckoutStore } from '../../src/stores/useCheckoutStore';
 import { useAppStore } from '../../src/stores/useAppStore';
+import { useBookingStore } from '../../src/stores/useBookingStore';
 import { MultiCityPanel } from '../../src/components/search/MultiCityPanel';
 import { CityPanel } from '../../src/components/search/CityPanel';
 import type { CityStop, TransportSuggestion } from '../../src/types/multi-city';
@@ -38,7 +39,7 @@ import { searchHotels, BookingError } from '../../src/services/booking';
 import { searchActivities } from '../../src/services/activities';
 import { generateMockCars } from '../../src/services/cars';
 import { getVisaInfo } from '../../src/services/visa';
-import type { SearchParams, SearchResults, CartItem, FlightSegment } from '../../src/types/booking';
+import type { SearchParams, SearchResults, CartItem, CartItemType, FlightSegment, BookingItem, HotelOffer, ActivityOffer, CarOffer, InsurancePlan, FlightOffer, Currency } from '../../src/types/booking';
 import type { Trip } from '../../src/types/trip';
 import { Colors, FontFamily, FontSize, Spacing, Radius } from '../../src/constants/theme';
 
@@ -284,6 +285,175 @@ const dmStyles = StyleSheet.create({
   btnPressed: { opacity: 0.85 },
 });
 
+// ─── BookingItem converters ───────────────────────────────────────────────────
+
+function flightGroupToBookingItem(
+  direction: 'outbound' | 'return',
+  group: FlightDirectionGroup,
+  offer: FlightOffer | null,
+): BookingItem {
+  const first = group.segments[0];
+  const last = group.segments[group.segments.length - 1];
+  const stops = group.segments.slice(1).map((seg) => ({
+    location: seg.origin,
+    locationName: seg.origin,
+    durationMin: 0,
+  }));
+  return {
+    id: `flight-${direction}-${group.key}`,
+    type: 'flight',
+    status: 'selected',
+    title: direction === 'outbound'
+      ? `Volo Andata · ${group.airline}`
+      : `Volo Ritorno · ${group.airline}`,
+    provider: group.airline,
+    price: group.estimatedPrice,
+    currency: offer?.currency ?? 'EUR',
+    photos: [],
+    timing: {
+      startDate: first.departureAt.split('T')[0],
+      endDate: last.arrivalAt.split('T')[0],
+      startTime: first.departureAt.slice(11, 16),
+      endTime: last.arrivalAt.slice(11, 16),
+      duration: `${Math.floor(group.durationMinutes / 60)}h ${group.durationMinutes % 60}m`,
+    },
+    flight: {
+      airline: group.airline,
+      flightNumber: first.flightNumber ?? '',
+      origin: first.origin,
+      originName: first.origin,
+      destination: last.destination,
+      destinationName: last.destination,
+      direction,
+      stops,
+      baggage: {
+        cabin: true,
+        checked: offer?.baggageIncluded ?? false,
+        description: offer?.baggageIncluded ? 'Bagaglio incluso' : 'Solo bagaglio a mano',
+      },
+    },
+    refund: {
+      refundable: offer?.refundPolicy !== 'strict',
+      description: offer?.refundPolicy === 'flexible' ? 'Rimborsabile'
+        : offer?.refundPolicy === 'moderate' ? 'Parzialmente rimborsabile'
+        : 'Non rimborsabile',
+    },
+  };
+}
+
+function hotelOfferToBookingItem(hotel: HotelOffer, params: SearchParams): BookingItem {
+  const nights = Math.max(1, Math.round(
+    (params.checkOut.getTime() - params.checkIn.getTime()) / 86_400_000,
+  ));
+  return {
+    id: `hotel-${hotel.id}`,
+    type: 'hotel',
+    status: 'selected',
+    title: hotel.name,
+    provider: hotel.provider,
+    price: hotel.totalPrice,
+    currency: hotel.currency,
+    photos: hotel.photoUrls ?? [],
+    rating: hotel.rating,
+    timing: {
+      startDate: params.checkIn.toISOString().split('T')[0],
+      endDate: params.checkOut.toISOString().split('T')[0],
+    },
+    hotel: {
+      address: hotel.zone,
+      amenities: hotel.amenities,
+      checkinTime: '15:00',
+      checkoutTime: '11:00',
+      nights,
+    },
+    refund: {
+      refundable: hotel.refundPolicy !== 'strict',
+      description: hotel.refundPolicy === 'flexible' ? 'Rimborsabile'
+        : hotel.refundPolicy === 'moderate' ? 'Parzialmente rimborsabile'
+        : 'Non rimborsabile',
+    },
+  };
+}
+
+function activityOfferToBookingItem(activity: ActivityOffer, params: SearchParams): BookingItem {
+  return {
+    id: `activity-${activity.id}`,
+    type: 'activity',
+    status: 'selected',
+    title: activity.name,
+    provider: activity.provider,
+    price: activity.price * params.travelers,
+    currency: activity.currency,
+    photos: activity.photoUrls ?? [],
+    timing: {
+      startDate: params.checkIn.toISOString().split('T')[0],
+    },
+    activity: {
+      category: activity.categories[0],
+      durationMin: Math.round(activity.durationHours * 60),
+    },
+    refund: {
+      refundable: activity.hasFreeCancellation ?? false,
+      description: activity.hasFreeCancellation ? 'Cancellazione gratuita' : 'Non rimborsabile',
+    },
+  };
+}
+
+function carOfferToBookingItem(car: CarOffer, params: SearchParams): BookingItem {
+  return {
+    id: `car-${car.id}`,
+    type: 'car',
+    status: 'selected',
+    title: `${car.company} · ${car.name}`,
+    provider: car.provider,
+    price: car.totalPrice,
+    currency: car.currency,
+    photos: [],
+    timing: {
+      startDate: params.checkIn.toISOString().split('T')[0],
+      endDate: params.checkOut.toISOString().split('T')[0],
+    },
+    car: {
+      company: car.company,
+      carType: car.category,
+      pickupLocation: car.pickupLocation,
+      pickupTime: '10:00',
+      returnLocation: car.pickupLocation,
+      returnTime: '10:00',
+    },
+    refund: {
+      refundable: car.refundPolicy !== 'strict',
+      description: car.refundPolicy === 'flexible' ? 'Rimborsabile' : 'Non rimborsabile',
+    },
+  };
+}
+
+function insurancePlanToBookingItem(plan: InsurancePlan, params: SearchParams): BookingItem {
+  return {
+    id: `insurance-${plan.id}`,
+    type: 'insurance',
+    status: 'selected',
+    title: plan.name,
+    provider: plan.provider,
+    price: plan.price * params.travelers,
+    currency: plan.currency,
+    photos: [],
+    timing: {
+      startDate: params.checkIn.toISOString().split('T')[0],
+      endDate: params.checkOut.toISOString().split('T')[0],
+    },
+    insurance: {
+      plan: plan.planType === 'essential' ? 'Essential' : plan.planType === 'plus' ? 'Plus' : 'Complete',
+      coverage: plan.coverageItems,
+      medicalLimit: 50_000,
+    },
+    refund: {
+      refundable: false,
+      description: 'Non rimborsabile dopo acquisto',
+    },
+  };
+}
+
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function SearchScreen() {
@@ -297,8 +467,20 @@ export default function SearchScreen() {
   const setMultiCityMode = useCheckoutStore((s) => s.setMultiCityMode);
   const setCityStops = useCheckoutStore((s) => s.setCityStops);
   const clearMultiCity = useCheckoutStore((s) => s.clearMultiCity);
-  const addTrip = useAppStore((s) => s.addTrip);
+  const updateTrip = useAppStore((s) => s.updateTrip);
   const onboardingData = useAppStore((s) => s.onboardingData);
+
+  // ─── Booking store (single source of truth for selections) ────────────────
+  const storeBookings = useBookingStore((s) => s.bookings);
+  const replaceFlightByDirection = useBookingStore((s) => s.replaceFlightByDirection);
+  const removeFlightByDirection = useBookingStore((s) => s.removeFlightByDirection);
+  const replaceBookingByType = useBookingStore((s) => s.replaceBookingByType);
+  const removeBookingsByType = useBookingStore((s) => s.removeBookingsByType);
+  const addBooking = useBookingStore((s) => s.addBooking);
+  const removeBooking = useBookingStore((s) => s.removeBooking);
+  const clearBookings = useBookingStore((s) => s.clearBookings);
+  const setStoreSearchParams = useBookingStore((s) => s.setSearchParams);
+  const saveDraftFromStore = useBookingStore((s) => s.saveDraft);
 
   const [params, setParams] = useState<SearchParams>(DEFAULT_SEARCH_PARAMS);
   const [hasSearched, setHasSearched] = useState(false);
@@ -392,6 +574,12 @@ export default function SearchScreen() {
         else if (type === 'activity') setSelectedActivities((prev) => [...prev, offerId]);
         else if (type === 'insurance') setSelectedInsurance(offerId);
       }
+
+      // Load bookings from the draft trip into bookingStore (new format support)
+      const draftTrip = useAppStore.getState().trips.find((t) => t.id === restore.tripId);
+      if (draftTrip) {
+        useBookingStore.getState().loadFromTrip(draftTrip);
+      }
     }, [pendingDraftRestore]),
   );
 
@@ -410,6 +598,9 @@ export default function SearchScreen() {
     setSelectedInsurance(null);
     setSelectedOutboundKey(null);
     setSelectedReturnKey(null);
+    // Sync search params and clear previous selections in the booking store
+    setStoreSearchParams(params);
+    clearBookings();
     setShowAllOutbound(false);
     setShowAllReturn(false);
     setShowAllFlights(false);
@@ -483,21 +674,27 @@ export default function SearchScreen() {
     await Promise.allSettled([flightPromise, hotelPromise, activitiesPromise]);
   };
 
-  const toggleActivity = (id: string) =>
-    setSelectedActivities((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
+  const toggleActivity = (id: string) => {
+    const wasSelected = selectedActivities.includes(id);
+    setSelectedActivities((prev) => wasSelected ? prev.filter((x) => x !== id) : [...prev, id]);
+    if (wasSelected) {
+      removeBooking(`activity-${id}`);
+    } else {
+      const activity = results?.activities.find((a) => a.id === id);
+      if (activity) addBooking(activityOfferToBookingItem(activity, params));
+    }
+  };
 
   const cartItems = useMemo<CartItem[]>(() => {
     if (!results) return [];
     const items: CartItem[] = [];
 
-    // Voli — sempre da singola destinazione
-    if (selectedFlight) {
-      const f = results.flights.find((x) => x.id === selectedFlight);
-      if (f) items.push({ type: 'flight', offerId: f.id, name: `${f.airline} ${f.segments[0].origin}→${f.segments[f.segments.length - 1].destination}`, price: f.price, currency: f.currency });
-    }
-
     if (multiCityMode) {
-      // Multi-città: legge direttamente da cityStops (source of truth)
+      // Multi-città: flights from bookingStore, hotel/activities from cityStops
+      for (const b of storeBookings) {
+        if (b.type !== 'flight' || b.status !== 'selected') continue;
+        items.push({ type: 'flight', offerId: b.id, name: b.title, price: b.price, currency: b.currency as Currency });
+      }
       for (const stop of cityStops) {
         if (stop.selectedHotel) {
           const h = stop.selectedHotel;
@@ -507,28 +704,23 @@ export default function SearchScreen() {
           items.push({ type: 'activity', offerId: act.id, name: act.name, price: act.price * params.travelers, currency: act.currency });
         }
       }
-    } else {
-      // Singola destinazione: legge da selezioni locali
-      if (selectedHotel) {
-        const h = results.hotels.find((x) => x.id === selectedHotel);
-        if (h) items.push({ type: 'hotel', offerId: h.id, name: h.name, price: h.totalPrice, currency: h.currency });
+      // Car and insurance from store even in multi-city
+      for (const b of storeBookings) {
+        if ((b.type === 'car' || b.type === 'insurance') && b.status === 'selected') {
+          items.push({ type: b.type as CartItemType, offerId: b.id, name: b.title, price: b.price, currency: b.currency as Currency });
+        }
       }
-      selectedActivities.forEach((aid) => {
-        const a = results.activities.find((x) => x.id === aid);
-        if (a) items.push({ type: 'activity', offerId: a.id, name: a.name, price: a.price * params.travelers, currency: a.currency });
-      });
+    } else {
+      // Singola destinazione: tutto da bookingStore
+      for (const b of storeBookings) {
+        if (b.status !== 'selected') continue;
+        if (b.type === 'visa' || b.type === 'transfer') continue;
+        items.push({ type: b.type as CartItemType, offerId: b.id, name: b.title, price: b.price, currency: b.currency as Currency });
+      }
     }
 
-    if (selectedCar) {
-      const c = results.cars.find((x) => x.id === selectedCar);
-      if (c) items.push({ type: 'car', offerId: c.id, name: `${c.company} · ${c.name}`, price: c.totalPrice, currency: c.currency });
-    }
-    if (selectedInsurance) {
-      const ins = results.insurance.find((x) => x.id === selectedInsurance);
-      if (ins) items.push({ type: 'insurance', offerId: ins.id, name: ins.name, price: ins.price * params.travelers, currency: ins.currency });
-    }
     return items;
-  }, [results, selectedFlight, selectedHotel, selectedCar, selectedActivities, selectedInsurance, params.travelers, multiCityMode, cityStops]);
+  }, [results, storeBookings, multiCityMode, cityStops, params.travelers]);
 
   const totalPrice = useMemo(() => cartItems.reduce((sum, item) => sum + item.price, 0), [cartItems]);
 
@@ -593,51 +785,13 @@ export default function SearchScreen() {
     if (!results) return;
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
-    const draftItems = cartItems.map((ci) => ({
-      id: `${ci.type}-${ci.offerId}`,
-      type: ci.type,
-      title: ci.name,
-      subtitle: ci.name,
-      dateLabel: `${fmt(params.checkIn)} – ${fmt(params.checkOut)}`,
-      confirmCode: '',
-      price: ci.price,
-    })) as Trip['items'];
+    // Ensure store has up-to-date search params before saving
+    setStoreSearchParams(params);
+    const savedTrip = saveDraftFromStore(name);
 
-    const draft: Trip = {
-      id: `draft-${Date.now()}`,
-      name,
-      destination: params.destination,
-      destinationCode: params.destinationCode ?? '',
-      coverEmoji: '📋',
-      dateRange: `${fmt(params.checkIn)} – ${fmt(params.checkOut)}`,
-      checkIn: params.checkIn.toISOString(),
-      checkOut: params.checkOut.toISOString(),
-      status: 'draft',
-      travelers: params.travelers,
-      totalPrice,
-      currency: 'EUR',
-      items: draftItems,
-      bookingRef: '',
-      createdAt: new Date().toISOString(),
-      flightOutbound: selectedOutboundKey
-        ? outboundGroups.find((g) => g.key === selectedOutboundKey)
-        : undefined,
-      flightReturn: selectedReturnKey
-        ? returnGroups.find((g) => g.key === selectedReturnKey)
-        : undefined,
-      selectedCar: selectedCar
-        ? results.cars.find((c) => c.id === selectedCar)
-        : undefined,
-      selectedInsurancePlan: selectedInsurance
-        ? results.insurance.find((i) => i.id === selectedInsurance)
-        : undefined,
-      visaInfo: results.visa ?? undefined,
-      isMultiCity: multiCityMode || undefined,
-      cityStops: multiCityMode ? cityStops : undefined,
-      transportSuggestions: multiCityMode ? transportSuggestions : undefined,
-    };
+    // Patch visaInfo (not a bookable item — stored as a Trip field)
+    if (results.visa) updateTrip(savedTrip.id, { visaInfo: results.visa });
 
-    addTrip(draft);
     setShowDraftModal(false);
     setToastMessage('Bozza salvata!');
     setToastVisible(true);
@@ -711,7 +865,16 @@ export default function SearchScreen() {
                           key={g.key}
                           group={g}
                           selected={selectedOutboundKey === g.key}
-                          onSelect={() => setSelectedOutboundKey(g.key === selectedOutboundKey ? null : g.key)}
+                          onSelect={() => {
+                            const newKey = g.key === selectedOutboundKey ? null : g.key;
+                            setSelectedOutboundKey(newKey);
+                            if (newKey) {
+                              const offer = results?.flights.find((f) => g.offerIds.includes(f.id)) ?? null;
+                              replaceFlightByDirection('outbound', flightGroupToBookingItem('outbound', g, offer));
+                            } else {
+                              removeFlightByDirection('outbound');
+                            }
+                          }}
                           direction="outbound"
                           offer={results?.flights.find((f) => g.offerIds.includes(f.id))}
                         />
@@ -732,7 +895,16 @@ export default function SearchScreen() {
                               key={g.key}
                               group={g}
                               selected={selectedReturnKey === g.key}
-                              onSelect={() => setSelectedReturnKey(g.key === selectedReturnKey ? null : g.key)}
+                              onSelect={() => {
+                                const newKey = g.key === selectedReturnKey ? null : g.key;
+                                setSelectedReturnKey(newKey);
+                                if (newKey) {
+                                  const offer = results?.flights.find((f) => g.offerIds.includes(f.id)) ?? null;
+                                  replaceFlightByDirection('return', flightGroupToBookingItem('return', g, offer));
+                                } else {
+                                  removeFlightByDirection('return');
+                                }
+                              }}
                               direction="return"
                               offer={results?.flights.find((f) => g.offerIds.includes(f.id))}
                             />
@@ -816,7 +988,18 @@ export default function SearchScreen() {
                     searchPlaceholder="Cerca per nome hotel o zona..."
                   />
                   {filteredHotels.slice(0, showAllHotels ? filteredHotels.length : SECTION_DEFAULT).map((h) => (
-                    <HotelCard key={h.id} hotel={h} nights={nights} selected={selectedHotel === h.id} onSelect={() => setSelectedHotel(h.id === selectedHotel ? null : h.id)} />
+                    <HotelCard
+                      key={h.id}
+                      hotel={h}
+                      nights={nights}
+                      selected={selectedHotel === h.id}
+                      onSelect={() => {
+                        const newId = h.id === selectedHotel ? null : h.id;
+                        setSelectedHotel(newId);
+                        if (newId) replaceBookingByType('hotel', hotelOfferToBookingItem(h, params));
+                        else removeBookingsByType('hotel');
+                      }}
+                    />
                   ))}
                   {!showAllHotels && filteredHotels.length > SECTION_DEFAULT && (
                     <ShowMoreButton hiddenCount={filteredHotels.length - SECTION_DEFAULT} onPress={() => toggleShowMore(setShowAllHotels, true)} />
@@ -911,7 +1094,17 @@ export default function SearchScreen() {
                     />
                   )}
                   {filteredCars.slice(0, visible).map((c) => (
-                    <CarCard key={c.id} car={c} selected={selectedCar === c.id} onSelect={() => setSelectedCar(c.id === selectedCar ? null : c.id)} />
+                    <CarCard
+                      key={c.id}
+                      car={c}
+                      selected={selectedCar === c.id}
+                      onSelect={() => {
+                        const newId = c.id === selectedCar ? null : c.id;
+                        setSelectedCar(newId);
+                        if (newId) replaceBookingByType('car', carOfferToBookingItem(c, params));
+                        else removeBookingsByType('car');
+                      }}
+                    />
                   ))}
                   {filteredCars.length === 0 && results.cars.length > 0 && (
                     <View style={styles.emptyRow}>
@@ -946,7 +1139,17 @@ export default function SearchScreen() {
                     />
                   )}
                   {filteredInsurance.slice(0, visible).map((ins) => (
-                    <InsuranceCard key={ins.id} plan={ins} selected={selectedInsurance === ins.id} onSelect={() => setSelectedInsurance(ins.id === selectedInsurance ? null : ins.id)} />
+                    <InsuranceCard
+                      key={ins.id}
+                      plan={ins}
+                      selected={selectedInsurance === ins.id}
+                      onSelect={() => {
+                        const newId = ins.id === selectedInsurance ? null : ins.id;
+                        setSelectedInsurance(newId);
+                        if (newId) replaceBookingByType('insurance', insurancePlanToBookingItem(ins, params));
+                        else removeBookingsByType('insurance');
+                      }}
+                    />
                   ))}
                   {filteredInsurance.length === 0 && results.insurance.length > 0 && (
                     <View style={styles.emptyRow}>
@@ -980,6 +1183,7 @@ export default function SearchScreen() {
           onSaveDraft={() => setShowDraftModal(true)}
           onCheckout={() => {
             if (!results) return;
+            // Use store bookings for checkout (richer data than CartItem)
             initCheckout(cartItems, totalPrice, 'EUR', results.params, results);
             router.push('/checkout/summary');
           }}

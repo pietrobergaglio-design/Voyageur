@@ -275,6 +275,7 @@ export interface BookingItem {
     originName: string;
     destination: string;
     destinationName: string;
+    direction?: 'outbound' | 'return';
     stops: {
       location: string;           // IATA
       locationName: string;

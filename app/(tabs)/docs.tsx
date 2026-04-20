@@ -349,7 +349,7 @@ function RefundRowBooking({ item }: { item: BookingItem }) {
       <View style={refundStyles.info}>
         <View style={refundStyles.titleRow}>
           <Text style={refundStyles.itemTitle}>{item.title}</Text>
-          <Text style={[refundStyles.policyLabel, { color: sem.color }]}>{item.refund.refundable ? 'Rimborsabile' : 'Non rimborsabile'}</Text>
+          <Text style={[refundStyles.policyLabel, { color: sem.color }]}>{item.refund.refundable && sem.emoji !== '🔴' ? 'Rimborsabile' : 'Non rimborsabile'}</Text>
         </View>
         <Text style={refundStyles.detail}>{item.refund.description}</Text>
         <Text style={[refundStyles.deadline, { color: sem.color }]}>⏰ {sem.label}</Text>

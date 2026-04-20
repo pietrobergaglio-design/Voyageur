@@ -37,6 +37,15 @@ interface BookingStore {
   /** Replace a booking of the same type (e.g. swapping selected flight) */
   replaceBookingByType(type: BookingType, item: BookingItem): void;
 
+  /** Replace a flight booking by direction (outbound/return), leaving the other direction intact */
+  replaceFlightByDirection(direction: 'outbound' | 'return', item: BookingItem): void;
+
+  /** Remove a flight booking by direction */
+  removeFlightByDirection(direction: 'outbound' | 'return'): void;
+
+  /** Remove all bookings of a given type */
+  removeBookingsByType(type: BookingType): void;
+
   clearBookings(): void;
 
   // Multi-city
@@ -130,6 +139,23 @@ export const useBookingStore = create<BookingStore>()(
         const without = s.bookings.filter((b) => b.type !== type);
         return { bookings: [...without, item] };
       }),
+
+      replaceFlightByDirection: (direction, item) => set((s) => {
+        const without = s.bookings.filter(
+          (b) => !(b.type === 'flight' && b.flight?.direction === direction),
+        );
+        return { bookings: [...without, item] };
+      }),
+
+      removeFlightByDirection: (direction) => set((s) => ({
+        bookings: s.bookings.filter(
+          (b) => !(b.type === 'flight' && b.flight?.direction === direction),
+        ),
+      })),
+
+      removeBookingsByType: (type) => set((s) => ({
+        bookings: s.bookings.filter((b) => b.type !== type),
+      })),
 
       clearBookings: () => set({ bookings: [], currentTripId: undefined }),
 

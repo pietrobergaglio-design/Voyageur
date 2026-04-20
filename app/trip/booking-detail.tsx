@@ -236,7 +236,7 @@ function BookingItemContent({ booking, isDraft }: { booking: BookingItem; isDraf
           <Text style={s.description}>{booking.flight.origin} → {booking.flight.destination}</Text>
           {booking.flight.flightNumber ? <Text style={s.sub}>Volo {booking.flight.flightNumber}</Text> : null}
           {booking.flight.stops.length > 0 && (
-            <Text style={s.sub}>{booking.flight.stops.length} scala: {booking.flight.stops.join(', ')}</Text>
+            <Text style={s.sub}>{booking.flight.stops.length} scala: {booking.flight.stops.map(s => s.locationName).join(', ')}</Text>
           )}
           {booking.flight.stops.length === 0 && <Text style={s.sub}>Volo diretto</Text>}
         </>

@@ -23,7 +23,7 @@ import { BookingsTab } from '../../src/components/trips/BookingsTab';
 import { Toast } from '../../src/components/common/Toast';
 import type { TripItem, Trip } from '../../src/types/trip';
 import type { AIActivitySuggestion, AIItinerary, AIMultiCityItinerary } from '../../src/types/ai-itinerary';
-import type { CartItem, SearchParams, Currency, BookingType, BookingStatus } from '../../src/types/booking';
+import type { CartItem, CartItemType, SearchParams, Currency, BookingType, BookingStatus } from '../../src/types/booking';
 import { Colors, FontFamily, FontSize, Spacing, Radius } from '../../src/constants/theme';
 
 // ─── AI slot adapter ──────────────────────────────────────────────────────────
@@ -991,16 +991,27 @@ export default function TripDetailScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     const validCurrencies: Currency[] = ['EUR', 'USD', 'GBP', 'JPY'];
     const currency: Currency = validCurrencies.includes(trip.currency as Currency) ? (trip.currency as Currency) : 'EUR';
-    const cartItems: CartItem[] = trip.items.map((item) => ({
-      type: item.type,
-      offerId: item.id.replace(`${item.type}-`, ''),
-      name: item.title,
-      price: item.price,
-      currency,
-    }));
+    let cartItems: CartItem[];
+    if (trip.bookings && trip.bookings.length > 0) {
+      cartItems = trip.bookings.map((b) => ({
+        type: b.type as import('../../src/types/booking').CartItemType,
+        offerId: b.id,
+        name: b.title,
+        price: b.price,
+        currency,
+      }));
+    } else {
+      cartItems = trip.items.map((item) => ({
+        type: item.type,
+        offerId: item.id.replace(`${item.type}-`, ''),
+        name: item.title,
+        price: item.price,
+        currency,
+      }));
+    }
     const searchParams: SearchParams = {
-      origin: 'Milano, Italia',
-      originCode: 'MXP',
+      origin: trip.origin ?? 'Milano, Italia',
+      originCode: trip.originCode ?? 'MXP',
       destination: trip.destination,
       destinationCode: trip.destinationCode,
       checkIn: trip.checkIn ? new Date(trip.checkIn) : checkIn,
@@ -1016,6 +1027,15 @@ export default function TripDetailScreen() {
   function handleModifyDraft() {
     if (!trip) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    let itemIds: { type: CartItemType; offerId: string }[];
+    if (trip.bookings && trip.bookings.length > 0) {
+      itemIds = trip.bookings.map((b) => ({ type: b.type as CartItemType, offerId: b.id }));
+    } else {
+      itemIds = trip.items.map((item) => ({ type: item.type, offerId: item.id.replace(`${item.type}-`, '') }));
+    }
+    // Sync booking store from trip so search screen restores correctly
+    const { useBookingStore } = require('../../src/stores/useBookingStore') as { useBookingStore: { getState: () => { loadFromTrip: (t: Trip) => void } } };
+    useBookingStore.getState().loadFromTrip(trip);
     setPendingDraftRestore({
       tripId: trip.id,
       destination: trip.destination,
@@ -1023,7 +1043,7 @@ export default function TripDetailScreen() {
       checkIn: trip.checkIn ?? checkIn.toISOString(),
       checkOut: trip.checkOut ?? checkOut.toISOString(),
       travelers: trip.travelers,
-      itemIds: trip.items.map((item) => ({ type: item.type, offerId: item.id.replace(`${item.type}-`, '') })),
+      itemIds,
       isMultiCity: trip.isMultiCity,
       cityStops: trip.cityStops,
       transportSuggestions: trip.transportSuggestions,
@@ -1065,6 +1085,9 @@ export default function TripDetailScreen() {
   const draftBarHeight = isDraft ? 100 : 0;
 
   const bookingCount = (() => {
+    if (trip.bookings && trip.bookings.length > 0) {
+      return trip.bookings.filter((b) => b.type !== 'insurance' && b.type !== 'visa').length;
+    }
     let n = (trip.flightOutbound ? 1 : 0) + (trip.flightReturn ? 1 : 0)
       + (trip.selectedCar ? 1 : 0)
       + (trip.selectedInsurancePlan ? 1 : 0);

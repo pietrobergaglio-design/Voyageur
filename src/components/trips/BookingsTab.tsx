@@ -493,7 +493,210 @@ export function BookingsTab({ trip, isDraft }: Props) {
     ? Math.max(1, Math.round((new Date(trip.checkOut).getTime() - new Date(trip.checkIn).getTime()) / 86_400_000))
     : 1;
 
-  // ── Build sections ──────────────────────────────────────────────────────────
+  // ── New format: trip.bookings[] ─────────────────────────────────────────────
+
+  const useNewFormat = !!(trip.bookings && trip.bookings.length > 0);
+
+  if (useNewFormat) {
+    const bookings = trip.bookings!;
+    const flightBookings = bookings.filter((b) => b.type === 'flight');
+    const hotelBookings = bookings.filter((b) => b.type === 'hotel');
+    const activityBookings = bookings.filter((b) => b.type === 'activity');
+    const carBooking = bookings.find((b) => b.type === 'car');
+    const insuranceBooking = bookings.find((b) => b.type === 'insurance');
+    const hasVisa = !!trip.visaInfo;
+
+    const breakdown: TotalBreakdown = { flights: 0, hotels: 0, activities: 0, car: 0, insurance: 0 };
+    for (const b of flightBookings) breakdown.flights += b.price;
+    for (const b of hotelBookings) breakdown.hotels += b.price;
+    for (const b of activityBookings) breakdown.activities += b.price;
+    if (carBooking) breakdown.car = carBooking.price;
+    if (insuranceBooking) breakdown.insurance = insuranceBooking.price;
+
+    const hasAnyBookings = bookings.length > 0 || hasVisa;
+
+    if (!hasAnyBookings) {
+      return (
+        <View style={{ flex: 1 }}>
+          <ScrollView contentContainerStyle={{ flexGrow: 1 }}>
+            <EmptyBookings />
+          </ScrollView>
+        </View>
+      );
+    }
+
+    // Convert BookingItem to display types for existing row components
+    const bookingToFlightGroup = (b: import('../../types/booking').BookingItem): FlightDirectionGroup => ({
+      key: b.id,
+      airline: b.flight?.airline ?? b.provider,
+      segments: [{
+        origin: b.flight?.origin ?? '',
+        destination: b.flight?.destination ?? '',
+        departureAt: `${b.timing.startDate}T${b.timing.startTime ?? '00:00'}:00`,
+        arrivalAt: `${b.timing.endDate ?? b.timing.startDate}T${b.timing.endTime ?? '00:00'}:00`,
+        durationMinutes: 0,
+        flightNumber: b.flight?.flightNumber ?? '',
+      }],
+      stops: b.flight?.stops.length ?? 0,
+      durationMinutes: 0,
+      departureAt: `${b.timing.startDate}T${b.timing.startTime ?? '00:00'}:00`,
+      arrivalAt: `${b.timing.endDate ?? b.timing.startDate}T${b.timing.endTime ?? '00:00'}:00`,
+      estimatedPrice: b.price,
+      offerIds: [],
+    });
+
+    const bookingToHotel = (b: import('../../types/booking').BookingItem): HotelOffer => ({
+      id: b.id,
+      provider: 'booking',
+      name: b.title,
+      zone: b.hotel?.address ?? '',
+      stars: 4,
+      propertyType: 'hotel',
+      pricePerNight: b.price / Math.max(1, b.hotel?.nights ?? nights),
+      totalPrice: b.price,
+      currency: b.currency as import('../../types/booking').Currency,
+      refundPolicy: b.refund.refundable ? 'flexible' : 'strict',
+      matchScore: 0,
+      tags: [],
+      amenities: b.hotel?.amenities ?? [],
+    });
+
+    const bookingToActivity = (b: import('../../types/booking').BookingItem): ActivityOffer => ({
+      id: b.id,
+      provider: 'viator',
+      name: b.title,
+      durationHours: (b.activity?.durationMin ?? 180) / 60,
+      price: b.price,
+      currency: b.currency as import('../../types/booking').Currency,
+      categories: b.activity?.category ? [b.activity.category] : [],
+      matchScore: 0,
+      tags: [],
+      highlights: [],
+    });
+
+    const bookingToCar = (b: import('../../types/booking').BookingItem): CarOffer => ({
+      id: b.id,
+      provider: 'mock',
+      name: b.car?.carType ?? b.title,
+      category: b.car?.carType ?? '',
+      company: b.car?.company ?? b.provider,
+      pricePerDay: b.price,
+      totalPrice: b.price,
+      currency: b.currency as import('../../types/booking').Currency,
+      days: 1,
+      transmission: 'automatic',
+      seats: 5,
+      doors: 4,
+      hasAC: true,
+      freeKm: 'unlimited',
+      pickupLocation: b.car?.pickupLocation ?? '',
+      insuranceIncluded: false,
+      refundPolicy: b.refund.refundable ? 'flexible' : 'strict',
+      matchScore: 0,
+      tags: [],
+    });
+
+    const bookingToInsurance = (b: import('../../types/booking').BookingItem): InsurancePlan => ({
+      id: b.id,
+      provider: 'qover',
+      name: b.title,
+      planType: 'essential',
+      coverageItems: b.insurance?.coverage ?? [],
+      price: b.price,
+      currency: b.currency as import('../../types/booking').Currency,
+      tags: [],
+      highlights: [],
+    });
+
+    return (
+      <View style={{ flex: 1 }}>
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={[tabStyles.content, { paddingBottom: Spacing.xl }]}
+          showsVerticalScrollIndicator={false}
+        >
+          {flightBookings.length > 0 && (
+            <CollapsibleSection title="✈️ Voli" count={flightBookings.length}>
+              {flightBookings.map((b) => (
+                <FlightRow
+                  key={b.id}
+                  group={bookingToFlightGroup(b)}
+                  label={b.flight?.direction === 'return' ? 'Ritorno' : 'Andata'}
+                  isDraft={isDraft}
+                  onPress={() => navigate(b.id)}
+                />
+              ))}
+            </CollapsibleSection>
+          )}
+
+          {hotelBookings.length > 0 && (
+            <CollapsibleSection title="🏨 Hotel" count={hotelBookings.length}>
+              {hotelBookings.map((b) => (
+                <HotelRow
+                  key={b.id}
+                  hotel={bookingToHotel(b)}
+                  nights={b.hotel?.nights ?? nights}
+                  isDraft={isDraft}
+                  checkIn={b.timing.startDate}
+                  checkOut={b.timing.endDate}
+                  onPress={() => navigate(b.id)}
+                />
+              ))}
+            </CollapsibleSection>
+          )}
+
+          {activityBookings.length > 0 && (
+            <CollapsibleSection title="🎯 Attività" count={activityBookings.length}>
+              {activityBookings.map((b) => (
+                <ActivityRow
+                  key={b.id}
+                  activity={bookingToActivity(b)}
+                  isDraft={isDraft}
+                  onPress={() => navigate(b.id)}
+                />
+              ))}
+            </CollapsibleSection>
+          )}
+
+          {carBooking && (
+            <CollapsibleSection title="🚗 Auto" count={1}>
+              <CarRow
+                car={bookingToCar(carBooking)}
+                isDraft={isDraft}
+                onPress={() => navigate(carBooking.id)}
+              />
+            </CollapsibleSection>
+          )}
+
+          {insuranceBooking && (
+            <CollapsibleSection title="🏥 Assicurazione" count={1}>
+              <InsuranceRow
+                plan={bookingToInsurance(insuranceBooking)}
+                isDraft={isDraft}
+                onPress={() => navigate(insuranceBooking.id)}
+              />
+            </CollapsibleSection>
+          )}
+
+          {hasVisa && (
+            <CollapsibleSection title="🛂 Visto">
+              <VisaRow visa={trip.visaInfo!} onPress={() => navigate('visa')} />
+            </CollapsibleSection>
+          )}
+        </ScrollView>
+
+        <TotalBar
+          total={trip.totalPrice}
+          isDraft={isDraft}
+          insetBottom={insets.bottom}
+          breakdown={breakdown}
+          onBook={isDraft ? () => {} : undefined}
+        />
+      </View>
+    );
+  }
+
+  // ── Legacy format: trip.flightOutbound / trip.items ─────────────────────────
 
   const hasFlights = !!(trip.flightOutbound || trip.flightReturn);
   const hasCar = !!trip.selectedCar;
